@@ -36,6 +36,12 @@
             justify-content: center;
             align-items: center;
             overflow-x: hidden;
+            
+            /* ป้องกันการคลุมดำข้อความเพื่อคัดลอก */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
         }
 
         /* Scanline effect */
@@ -95,6 +101,12 @@
             margin-bottom: 20px;
             font-family: 'Share Tech Mono', 'Sarabun', monospace;
             transition: box-shadow 0.3s ease;
+            
+            /* อนุญาตให้พิมพ์และเลือกข้อความในช่องกรอกชื่อได้ */
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
         }
 
         input[type="text"]:focus {
@@ -269,7 +281,7 @@
              ======================= -->
         <div id="result-screen" class="screen">
             <h1 class="text-neon-blue">EXAM // COMPLETE</h1>
-            <div id="score-display" style="font-size: 3rem; text-align: center; margin: 20px 0; text-shadow: 0 0 15px var(--neon-blue);"></div>
+            <div id="score-display" style="font-size: 2rem; text-align: center; margin: 20px 0; line-height: 1.5; text-shadow: 0 0 15px var(--neon-blue);"></div>
             
             <div id="saving-status" style="text-align: center;">
                 <div class="loader"></div>
@@ -294,7 +306,7 @@
         // 1. นำ URL ของ Google Apps Script มาใส่ตรงนี้ครับ
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxS-er6wX-HCLF7m23cp4m6ILwp_ZHX7w1IDps-X2yEgZjJLVOBJdiqlSju6FXlrJ8/exec";
 
-        // 2. ข้อมูลข้อสอบ 40 ข้อ (คำถาม ตัวเลือก และดัชนีของคำตอบที่ถูกต้อง 0-3)
+        // 2. ข้อมูลข้อสอบ 40 ข้อ
         const questions = [
             { q: "1. ตามมาตรฐานสายไฟฟ้าใหม่ (มอก. 11-2553) สายดิน (Ground) กำหนดให้ใช้สายไฟสีใด?", options: ["ก. สีดำ", "ข. สีเทา", "ค. สีน้ำตาล", "ง. สีเขียวแถบเหลือง"], ans: 3 },
             { q: "2. อุปกรณ์ในข้อใดที่ทำหน้าที่ตัดวงจรเมื่อเกิดกระแสไฟฟ้าลัดวงจรหรือใช้ไฟเกิน?", options: ["ก. สวิตช์(Switch)", "ข. ฟิวส์ (Fuse)", "ค. รีเลย์ (Relay)", "ง. คาปาซิเตอร์ (Capacitor)"], ans: 1 },
@@ -332,7 +344,7 @@
             { q: "34. สาย L (Line) และสาย N (Neutral) ในระบบไฟฟ้าบ้าน แตกต่างกันอย่างไร?", options: ["ก. สาย L มีแรงดันไฟฟ้า (มีไฟ) สาย N ไม่มีแรงดันไฟฟ้า", "ข. สาย L ไม่มีแรงดันไฟฟ้า สาย N มีแรงดันไฟฟ้า (มีไฟ)", "ค. มีแรงดันไฟฟ้า (มีไฟ) ทั้งสองเส้น", "ง. เป็นสายดินทั้งสองเส้น"], ans: 0 },
             { q: "35. เบรกเกอร์ (Circuit Breaker) มีข้อดีที่เหนือกว่าฟิวส์ (Fuse) อย่างไร?", options: ["ก. เบรกเกอร์ตัดไฟได้เร็วกว่าฟิวส์ทุกชนิด", "ข. เมื่อตัดวงจรแล้ว เบรกเกอร์สามารถรีเซ็ตเพื่อใช้งานใหม่ได้ทันที", "ค. เบรกเกอร์มีราคาถูกกว่า", "ง. เบรกเกอร์ไม่ต้องการการติดตั้งสายดิน"], ans: 1 },
             { q: "36. อุปกรณ์ใดที่ออกแบบมาเพื่อป้องกันอันตรายจากไฟดูดหรือไฟรั่วโดยตรง?", options: ["ก. MCB (Miniature Circuit Breaker)", "ข. RCBO / RCD (Residual Current Device)", "ค. MCCB (Molded Case Circuit Breaker)", "ง. Magnetic Contactor"], ans: 1 },
-            { q: "37. เซนเซอร์ LDR (Light Dependent Resistor) มีคุณสมบัติตามข้อใด?", options: ["ก. ค่าความต้านทานเปลี่ยนแปลงตามอุณหภูมิ", "ข. ค่าความต้านทานเปลี่ยนแปลงตามความเข้มของแสง", "ค. ผลิตแรงดันไฟฟ้าเมื่อได้รับแสงสว่าง", "ง. เปล่งแสงออกมาเมื่อมีกระแสไฟฟ้าไหลผ่าน"], ans: 1 },
+            { q: "37. เซนเซอร์ LDR (Light Dependent Resistor) มีคุณสมบัตตามข้อใด?", options: ["ก. ค่าความต้านทานเปลี่ยนแปลงตามอุณหภูมิ", "ข. ค่าความต้านทานเปลี่ยนแปลงตามความเข้มของแสง", "ค. ผลิตแรงดันไฟฟ้าเมื่อได้รับแสงสว่าง", "ง. เปล่งแสงออกมาเมื่อมีกระแสไฟฟ้าไหลผ่าน"], ans: 1 },
             { q: "38. วิธีการใดป้องกันอันตรายจากกระแสไฟฟ้ารั่วที่เครื่องใช้ไฟฟ้าโครงโลหะได้ดีที่สุด?", options: ["ก. เปลี่ยนไปใช้ฟิวส์ที่มีขนาดแอมป์สูงขึ้น", "ข. ติดตั้งสายดิน (Grounding) เข้ากับโครงโลหะของอุปกรณ์", "ค. ทาสีกันสนิมทับโครงโลหะ", "ง. พันเทปพันสายไฟบริเวณโครงโลหะให้หนาที่สุด"], ans: 1 },
             { q: "39. ในการอ่านค่าแถบสีตัวต้านทาน 4 แถบ แถบสีที่ 4 (เช่น สีทอง หรือ สีเงิน) หมายถึงอะไร?", options: ["ก. ค่าตัวตั้งหลักที่ 1", "ข. ค่าตัวคูณ (Multiplier)", "ค. ค่าเปอร์เซ็นต์ความคลาดเคลื่อน (Tolerance)", "ง. ค่าสัมประสิทธิ์อุณหภูมิ"], ans: 2 },
             { q: "40. อุปกรณ์ใดใช้สำหรับนำตะกั่วเก่าออกจากจุดบัดกรีบนแผ่นปริ้นท์เพื่อเปลี่ยนอะไหล่?", options: ["ก. ฟลักซ์ (Flux)", "ข. คีมปากจิ้งจก", "ค. ที่ดูดตะกั่ว (Desoldering Pump)", "ง. คัตเตอร์ (Cutter)"], ans: 2 }
@@ -343,6 +355,11 @@
         let userAnswers = new Array(questions.length).fill(null);
         let studentName = "";
         
+        // ตัวแปรระบบป้องกันการทุจริต
+        let isExamActive = false;
+        let cheatDeductions = 0;
+        let cheatCooldown = false; // ป้องกันการเด้งเตือนซ้อนกันถี่เกินไป
+
         // ตัวแปรจับเวลา (60 นาที = 3600 วินาที)
         let timeRemaining = 60 * 60;
         let timerInterval;
@@ -359,12 +376,74 @@
                 return;
             }
             studentName = nameInput;
+
+            // แจ้งเตือนกฎกติกาการทุจริตก่อนเข้าสอบ
+            alert("⚠️ กฎกติกาและการป้องกันการทุจริต ⚠️\n\n1. ห้ามออกจากหน้าจอ หรือสลับไปแท็บ/โปรแกรมอื่น\n2. ห้ามจับภาพหน้าจอ (Capture) หรือคัดลอกข้อความใดๆ\n\n*** หากฝ่าฝืน ระบบจะเตือนและ 'หักคะแนน 1 คะแนน' ต่อการทำผิด 1 ครั้งทันที ***\n\nกด OK เพื่อเริ่มการทดสอบ");
+
+            isExamActive = true; // เปิดระบบดักจับการทุจริต
+            cheatDeductions = 0;
+
             showScreen('exam-screen');
             loadQuestion(currentQuestion);
             
             // เริ่มจับเวลา
             timerInterval = setInterval(updateTimer, 1000);
         }
+
+        // ==========================================
+        // ระบบตรวจจับการทุจริต (Anti-Cheating System)
+        // ==========================================
+        function handleCheating(reason) {
+            if (!isExamActive || cheatCooldown) return;
+            
+            cheatCooldown = true;
+            cheatDeductions++; // หัก 1 คะแนน
+            
+            alert(`🚨 ตรวจพบการทุจริต: ${reason}\n\nคุณถูกหัก 1 คะแนน!\n(โดนหักคะแนนสะสมไปแล้ว ${cheatDeductions} คะแนน)`);
+            
+            // หน่วงเวลา 1 วินาทีก่อนที่จะรับการดักจับครั้งต่อไป เพื่อป้องกัน Alert ซ้อนกัน
+            setTimeout(() => { cheatCooldown = false; }, 1000);
+        }
+
+        // ดักจับการสลับแท็บเบราว์เซอร์
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                handleCheating("ออกจากหน้าจอข้อสอบ (เปลี่ยนแท็บ)");
+            }
+        });
+
+        // ดักจับการสลับไปเปิดโปรแกรมอื่น หรือย่อหน้าต่างเบราว์เซอร์
+        window.addEventListener("blur", () => {
+            handleCheating("สลับไปหน้าต่างหรือโปรแกรมอื่น");
+        });
+
+        // ดักจับการคัดลอกข้อความ
+        document.addEventListener("copy", (e) => {
+            handleCheating("พยายามคัดลอกข้อความ");
+            e.preventDefault(); // ยกเลิกการคัดลอก
+        });
+
+        // ป้องกันการคลิกขวา
+        document.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+        });
+
+        // ดักจับปุ่ม Print Screen และคีย์ลัดบางอย่าง
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "PrintScreen") {
+                handleCheating("กดปุ่มจับภาพหน้าจอ (Print Screen)");
+                navigator.clipboard.writeText(""); // พยายามล้างค่าในคลิปบอร์ด
+            }
+        });
+
+        window.addEventListener("keydown", (e) => {
+            // ดักจับ Ctrl+C / Cmd+C
+            if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+                handleCheating("พยายามคัดลอกข้อความโดยใช้คีย์ลัด");
+                e.preventDefault();
+            }
+        });
+        // ==========================================
 
         function updateTimer() {
             if (timeRemaining <= 0) {
@@ -429,28 +508,40 @@
         }
 
         function submitExam() {
-            // ตรวจสอบว่าตอบครบหรือไม่ (ข้ามได้ถ้าหมดเวลา แต่เราเตือนนิดหน่อย)
+            // ตรวจสอบว่าตอบครบหรือไม่ (ข้ามได้ถ้าหมดเวลา)
             if (userAnswers.includes(null) && timeRemaining > 0) {
                 if (!confirm("คุณยังทำข้อสอบไม่ครบทุกข้อ ต้องการส่งคำตอบเลยหรือไม่?")) return;
             }
 
             clearInterval(timerInterval);
+            isExamActive = false; // ปิดระบบจับการทุจริต เพื่อให้ผู้ใช้ดูผลคะแนนได้โดยไม่เด้งเตือน
             
-            // ตรวจคำตอบ
-            score = 0;
+            // ตรวจคำตอบ (คะแนนดิบ)
+            let rawScore = 0;
             userAnswers.forEach((ans, i) => {
-                if (ans === questions[i].ans) score++;
+                if (ans === questions[i].ans) rawScore++;
             });
 
+            // คิดคะแนนสุทธิ (ลบด้วยคะแนนทุจริต)
+            score = rawScore - cheatDeductions;
+            if (score < 0) score = 0; // ป้องกันไม่ให้คะแนนติดลบ
+
             showScreen('result-screen');
-            document.getElementById('score-display').innerText = `${score} / ${questions.length}`;
+            
+            // แสดงผลคะแนน พร้อมรายละเอียดการหัก
+            document.getElementById('score-display').innerHTML = `
+                คะแนนสุทธิ: ${score} / ${questions.length}<br>
+                <span style="font-size: 1.2rem; color: var(--neon-pink); display: block; margin-top: 15px;">
+                    (ทำได้ ${rawScore} คะแนน, หักจากการทุจริต ${cheatDeductions} คะแนน)
+                </span>
+            `;
 
             // ส่งข้อมูลไปยัง Google Apps Script
             sendDataToGAS(studentName, score);
         }
 
         function sendDataToGAS(name, score) {
-            // สร้างข้อมูลเป็น string ส่งแบบ text/plain เพิ่อเลี่ยงปัญหา CORS
+            // สร้างข้อมูลเป็น string ส่งแบบ text/plain เพื่อเลี่ยงปัญหา CORS
             const payload = JSON.stringify({ name: name, score: score });
 
             fetch(SCRIPT_URL, {
