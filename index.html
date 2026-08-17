@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ข้อสอบปลายภาค - งานไฟฟ้าและอิเล็กทรอนิกส์</title>
+    <style>
+        /* ============================
+           CSS: Cyberpunk + Glassmorphism 
+           ============================ */
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff;
+            --bg-color: #050510;
+            --glass-bg: rgba(10, 10, 25, 0.6);
+            --glass-border: rgba(0, 243, 255, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(0, 243, 255, 0.08), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(255, 0, 255, 0.08), transparent 25%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        /* Scanline effect */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px);
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1), inset 0 0 10px rgba(255, 0, 255, 0.05);
+            position: relative;
+            z-index: 10;
+            margin: 40px 0;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .text-neon-blue { color: var(--neon-blue); text-shadow: 0 0 8px var(--neon-blue); }
+        .text-neon-pink { color: var(--neon-pink); text-shadow: 0 0 8px var(--neon-pink); }
+        
+        /* Dashboard Info Text */
+        .info-panel {
+            border-left: 4px solid var(--neon-pink);
+            padding-left: 15px;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            font-size: 1.1rem;
+        }
+
+        .info-panel p { margin-bottom: 5px; }
+
+        /* Inputs & Buttons */
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            font-size: 1.2rem;
+            border-radius: 5px;
+            outline: none;
+            margin-bottom: 20px;
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+            transition: box-shadow 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.5);
+        }
+
+        button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: transparent;
+            color: #fff;
+            border: 2px solid var(--neon-blue);
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+        }
+
+        button:hover {
+            background: var(--neon-blue);
+            color: #000;
+            box-shadow: 0 0 20px var(--neon-blue);
+        }
+
+        button.btn-pink {
+            border-color: var(--neon-pink);
+        }
+
+        button.btn-pink:hover {
+            background: var(--neon-pink);
+            box-shadow: 0 0 20px var(--neon-pink);
+        }
+
+        /* Exam Section */
+        #timer {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 1.5rem;
+            color: var(--neon-pink);
+            text-align: right;
+            margin-bottom: 15px;
+            text-shadow: 0 0 10px var(--neon-pink);
+        }
+
+        .question-box {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            line-height: 1.5;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid var(--neon-blue);
+        }
+
+        .options-list {
+            list-style: none;
+        }
+
+        .option-item {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .option-item:hover {
+            border-color: var(--neon-blue);
+            background: rgba(0, 243, 255, 0.1);
+        }
+
+        .option-item.selected {
+            border-color: var(--neon-pink);
+            background: rgba(255, 0, 255, 0.1);
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.3);
+        }
+
+        /* Screens Management */
+        .screen { display: none; }
+        .screen.active { display: block; animation: fadeIn 0.5s ease; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Loader */
+        .loader {
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top: 4px solid var(--neon-blue);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- =======================
+             SCREEN 1: Intro
+             ======================= -->
+        <div id="intro-screen" class="screen active">
+            <h1 class="text-neon-blue" style="margin-bottom: 20px;">SYSTEM // INITIATED</h1>
+            
+            <div class="info-panel">
+                <p><strong>วิทยาลัยสารพัดช่างศรีสะเกษ</strong></p>
+                <p>สำนักงานคณะกรรมการการอาชีวศึกษา กระทรวงศึกษาธิการ</p>
+                <p class="text-neon-pink">ต้นฉบับข้อสอบปลายภาค ภาคเรียนที่ 1/2569 รูปแบบออนไลน์(QR-Code)</p>
+                <br>
+                <p><strong>รหัสวิชา:</strong> 30100-0003</p>
+                <p><strong>ชื่อวิชา:</strong> งานไฟฟ้าและอิเล็กทรอนิกส์ ท-ป-น 1-3-2</p>
+                <p>นักศึกษาสาขาวิชา อิเล็กทรอนิกส์ ระดับชั้น ปวส.1</p>
+                <br>
+                <p><strong>ข้อสอบจำนวน:</strong> 40 ข้อ | <strong>คะแนนเต็ม:</strong> 40 คะแนน</p>
+                <p><strong>เวลา:</strong> 60 นาที</p>
+                <p><strong>ครูผู้ออกข้อสอบ:</strong> นายวิทยากร วรรณา</p>
+            </div>
+
+            <button onclick="showScreen('login-screen')">ถัดไป (NEXT) >></button>
+        </div>
+
+        <!-- =======================
+             SCREEN 2: Login / Name Input
+             ======================= -->
+        <div id="login-screen" class="screen">
+            <h2 class="text-neon-pink" style="margin-bottom: 20px;">USER // AUTHENTICATION</h2>
+            <p style="margin-bottom: 10px; color: #ccc;">กรุณากรอกชื่อ-นามสกุล ก่อนทำข้อสอบ</p>
+            <input type="text" id="studentName" placeholder="ระบุ ชื่อ-นามสกุล ของคุณที่นี่..." autocomplete="off">
+            <button class="btn-pink" onclick="startExam()">เริ่มทำข้อสอบ (START EXAM)</button>
+        </div>
+
+        <!-- =======================
+             SCREEN 3: Exam
+             ======================= -->
+        <div id="exam-screen" class="screen">
+            <div id="timer">00:00</div>
+            <h3 class="text-neon-blue" id="question-progress" style="text-align: left; margin-bottom: 10px;">Q: 1/40</h3>
+            
+            <div class="question-box" id="question-text">
+                <!-- คำถามจะถูกโหลดมาแสดงที่นี่ -->
+            </div>
+            
+            <ul class="options-list" id="options-container">
+                <!-- ตัวเลือกจะถูกโหลดมาแสดงที่นี่ -->
+            </ul>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button id="btn-next" onclick="nextQuestion()">ข้อถัดไป (NEXT)</button>
+                <button id="btn-submit" class="btn-pink" style="display: none;" onclick="submitExam()">ส่งคำตอบ (SUBMIT)</button>
+            </div>
+        </div>
+
+        <!-- =======================
+             SCREEN 4: Result & Saving
+             ======================= -->
+        <div id="result-screen" class="screen">
+            <h1 class="text-neon-blue">EXAM // COMPLETE</h1>
+            <div id="score-display" style="font-size: 3rem; text-align: center; margin: 20px 0; text-shadow: 0 0 15px var(--neon-blue);"></div>
+            
+            <div id="saving-status" style="text-align: center;">
+                <div class="loader"></div>
+                <p class="text-neon-pink">กำลังอัปโหลดข้อมูลเข้าสู่ระบบ...</p>
+            </div>
+            
+            <div id="success-message" style="display: none; text-align: center; color: #0f0;">
+                <p>บันทึกข้อมูลเสร็จสมบูรณ์ ขอบคุณที่เข้าร่วมการทดสอบ</p>
+            </div>
+            <div id="error-message" style="display: none; text-align: center; color: #f00;">
+                <p>เกิดข้อผิดพลาดในการบันทึกข้อมูล โปรดแจ้งผู้คุมสอบ</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* ============================
+           JAVASCRIPT LOGIC
+           ============================ */
+
+        // 1. นำ URL ของ Google Apps Script มาใส่ตรงนี้ครับ
+        const SCRIPT_URL = "วาง_URL_ของ_GOOGLE_APPS_SCRIPT_ที่นี่";
+
+        // 2. ข้อมูลข้อสอบ 40 ข้อ (คำถาม ตัวเลือก และดัชนีของคำตอบที่ถูกต้อง 0-3)
+        const questions = [
+            { q: "1. ตามมาตรฐานสายไฟฟ้าใหม่ (มอก. 11-2553) สายดิน (Ground) กำหนดให้ใช้สายไฟสีใด?", options: ["ก. สีดำ", "ข. สีเทา", "ค. สีน้ำตาล", "ง. สีเขียวแถบเหลือง"], ans: 3 },
+            { q: "2. อุปกรณ์ในข้อใดที่ทำหน้าที่ตัดวงจรเมื่อเกิดกระแสไฟฟ้าลัดวงจรหรือใช้ไฟเกิน?", options: ["ก. สวิตช์(Switch)", "ข. ฟิวส์ (Fuse)", "ค. รีเลย์ (Relay)", "ง. คาปาซิเตอร์ (Capacitor)"], ans: 1 },
+            { q: "3. ข้อใดคือความหมายของ 'กระแสไฟฟ้า' (Electric Current)?", options: ["ก. การเคลื่อนที่ของอิเล็กตรอนในตัวนำ", "ข. ความแตกต่างของศักย์ไฟฟ้าระหว่างจุดสองจุด", "ค. การต่อต้านการไหลของอิเล็กตรอน", "ง. พลังงานที่ใช้ในการขับเคลื่อนประจุไฟฟ้า"], ans: 0 },
+            { q: "4. หน่วยวัดของความต้านทานไฟฟ้า (Resistance) คือข้อใด?", options: ["ก. โวลต์ (Volt)", "ข. แอมแปร์ (Ampere)", "ค. โอห์ม (Ohm)", "ง. วัตต์ (Watt)"], ans: 2 },
+            { q: "5. สมการของกฎของโอห์ม (Ohm's Law) ที่ถูกต้องคือข้อใด?", options: ["ก. V = I / R", "ข. I = V × R", "ค. P = V × I", "ง. V = I × R"], ans: 3 },
+            { q: "6. วงจรไฟฟ้าหนึ่งมีความต่างศักย์ 12V และมีความต้านทาน 4 โอห์ม จะมีกระแสไฟฟ้าไหลในวงจรเท่าใด?", options: ["ก. 2 แอมแปร์", "ข. 3 แอมแปร์", "ค. 8 แอมแปร์", "ง. 48 แอมแปร์"], ans: 1 },
+            { q: "7. เครื่องใช้ไฟฟ้ากำลัง 1,000 วัตต์ หากเปิดใช้งานต่อเนื่อง 2 ชั่วโมง จะสิ้นเปลืองพลังงานไฟฟ้ากี่หน่วย (Unit)?", options: ["ก. 1 หน่วย", "ข. 1.2 หน่วย", "ค. 2 หน่วย", "ง. 2000 หน่วย"], ans: 2 },
+            { q: "8. คุณสมบัติของการต่อตัวต้านทานแบบ 'อนุกรม' (Series) คือข้อใด?", options: ["ก. กระแสไฟฟ้าไหลผ่านตัวต้านทานแต่ละตัวเท่ากัน", "ข. แรงดันไฟฟ้าตกคร่อมตัวต้านทานแต่ละตัวเท่ากัน", "ค. ความต้านทานรวมของวงจรจะมีค่าน้อยลง", "ง. หากมีอุปกรณ์ใดขาด วงจรส่วนอื่นจะยังทำงานได้"], ans: 0 },
+            { q: "9. หากนำตัวต้านทานขนาด 100 โอห์ม จำนวน 2 ตัว มาต่อกันแบบ 'ขนาน' (Parallel) จะมีความต้านทานรวมเท่าใด?", options: ["ก. 50 โอห์ม", "ข. 100 โอห์ม", "ค. 150 โอห์ม", "ง. 200 โอห์ม"], ans: 0 },
+            { q: "10. อุปกรณ์อิเล็กทรอนิกส์ชนิดใดทำหน้าที่ประจุและคายประจุไฟฟ้า?", options: ["ก. ตัวต้านทาน (Resistor)", "ข. ตัวเก็บประจุ (Capacitor)", "ค. ตัวเหนี่ยวนำ (Inductor)", "ง. ไดโอด (Diode)"], ans: 1 },
+            { q: "11. หน่วยวัดความจุของตัวเก็บประจุไฟฟ้าคือข้อใด?", options: ["ก. เฮนรี่ (Henry)", "ข. โอห์ม (Ohm)", "ค. ฟารัด (Farad)", "ง. เฮิรตซ์ (Hertz)"], ans: 2 },
+            { q: "12. หม้อแปลงไฟฟ้า (Transformer) ทำงานโดยอาศัยหลักการใด?", options: ["ก. การเหนี่ยวนำแม่เหล็กไฟฟ้า", "ข. การเก็บสะสมประจุไฟฟ้า", "ค. การเปลี่ยนแปลงความต้านทาน", "ง. การคัดกรองความถี่"], ans: 0 },
+            { q: "13. หน้าที่หลักของ 'ไดโอด' (Diode) ในวงจรอิเล็กทรอนิกส์คืออะไร?", options: ["ก. ขยายสัญญาณทางไฟฟ้า", "ข. ยอมให้กระแสไฟฟ้าไหลผ่านได้ทางเดียว", "ค. เก็บประจุไฟฟ้าสำรอง", "ง. สร้างความถี่ให้กับวงจร"], ans: 1 },
+            { q: "14. ขาของทรานซิสเตอร์ชนิด BJT (Bipolar Junction Transistor) ประกอบด้วยขาใดบ้าง?", options: ["ก. Gate, Drain, Source", "ข. Base, Collector, Emitter", "ค. Anode, Cathode, Gate", "ง. Anode 1, Anode 2, Gate"], ans: 1 },
+            { q: "15. ทรานซิสเตอร์ชนิด NPN จะนำกระแสได้ (ทำงาน) เมื่อได้รับแรงดันไบอัสลักษณะใด?", options: ["ก. จ่ายแรงดันลบเข้าที่ขา Base เทียบกับ Emitter", "ข. จ่ายแรงดันบวกเข้าที่ขา Base เทียบกับ Emitter", "ค. จ่ายแรงดันสลับเข้าที่ขา Base", "ง. ไม่จำเป็นต้องจ่ายแรงดันไบอัส"], ans: 1 },
+            { q: "16. การอ่านค่าแถบสีตัวต้านทาน 'แดง แดง น้ำตาล ทอง' มีค่าความต้านทานเท่าใด?", options: ["ก. 220 Ω ± 5%", "ข. 2,200 Ω ± 5%", "ค. 220 Ω ± 10%", "ง. 22 Ω ± 5%"], ans: 0 },
+            { q: "17. มัลติมิเตอร์แบบเข็ม (Analog Multimeter) โดยทั่วไป ไม่สามารถใช้วัดค่าในข้อใดได้โดยตรง?", options: ["ก. แรงดันไฟฟ้ากระแสตรง (DCV)", "ข. กระแสไฟฟ้ากระแสตรง (DCmA)", "ค. ความต้านทานไฟฟ้า (Ω)", "ง. ความถี่ไฟฟ้า (Frequency)"], ans: 3 },
+            { q: "18. การวัดแรงดันไฟฟ้า (Voltage) จะต้องต่อมัลติมิเตอร์เข้ากับวงจรอย่างไร?", options: ["ก. ต่อแบบอนุกรม", "ข. ต่อแบบขนาน", "ค. ต่อแบบผสม", "ง. ต่อแบบสตาร์-เดลต้า"], ans: 1 },
+            { q: "19. การวัดกระแสไฟฟ้า (Current) จะต้องต่อมัลติมิเตอร์เข้ากับวงจรอย่างไร?", options: ["ก. ต่อแบบอนุกรม", "ข. ต่อแบบขนาน", "ค. ต่อแบบผสม", "ง. วัดคร่อมจุดที่ต้องการได้ทันที"], ans: 0 },
+            { q: "20. ระบบไฟฟ้ากระแสสลับที่ใช้งานตามบ้านเรือนในประเทศไทย มีความถี่ประมาณเท่าใด?", options: ["ก. 50 Hz", "ข. 60 Hz", "ค. 110 Hz", "ง. 220 Hz"], ans: 0 },
+            { q: "21. เครื่องมือวัดในข้อใดที่ใช้สำหรับแสดงรูปร่างและขนาดของสัญญาณไฟฟ้าทางหน้าจอ?", options: ["ก. มัลติมิเตอร์ดิจิทัล", "ข. ออสซิลโลสโคป (Oscilloscope)", "ค. ฟังก์ชันเจเนอเรเตอร์ (Function Generator)", "ง. เครื่องวัด LCR"], ans: 1 },
+            { q: "22. เครื่องมือใดใช้สำหรับประสานรอยต่อของสายไฟหรือเชื่อมอุปกรณ์อิเล็กทรอนิกส์ลงบนแผ่นวงจร?", options: ["ก. คีมย้ำหางปลา", "ข. หัวแร้ง (Soldering Iron)", "ค. ปืนกาวความร้อน", "ง. ที่ดูดตะกั่ว"], ans: 1 },
+            { q: "23. โลหะผสมที่เป็นส่วนประกอบหลักในตะกั่วบัดกรีทั่วไป (Solder) คือข้อใด?", options: ["ก. ดีบุก และ ทองแดง", "ข. ดีบุก และ ตะกั่ว", "ค. ทองแดง และ สังกะสี", "ง. เงิน และ ตะกั่ว"], ans: 1 },
+            { q: "24. SCR เป็นอุปกรณ์สารกึ่งตัวนำที่จัดอยู่ในกลุ่มใด?", options: ["ก. ทรานซิสเตอร์ (Transistor)", "ข. ไทริสเตอร์ (Thyristor)", "ค. ไอซี (IC)", "ง. ออปโตอิเล็กทรอนิกส์ (Optoelectronics)"], ans: 1 },
+            { q: "25. คำว่า IC ย่อมาจากคำภาษาอังกฤษในข้อใด?", options: ["ก. Internal Circuit", "ข. Integrated Circuit", "ค. Injector Current", "ง. Inverse Capacitance"], ans: 1 },
+            { q: "26. อุปกรณ์อิเล็กทรอนิกส์ในข้อใดที่เปลี่ยนพลังงานไฟฟ้าเป็นพลังงานแสง?", options: ["ก. LDR", "ข. LED", "ค. LCD", "ง. โซลาร์เซลล์ (Solar Cell)"], ans: 1 },
+            { q: "27. อุปกรณ์ในข้อใดที่เปลี่ยนพลังงานแสงสว่างให้เป็นพลังงานไฟฟ้า?", options: ["ก. โซลาร์เซลล์ (Solar Cell)", "ข. เซเว่นเซกเมนต์ (7-Segment)", "ค. เทอร์มิสเตอร์ (Thermistor)", "ง. วาริสเตอร์ (Varistor)"], ans: 0 },
+            { q: "28. วงจรเรียงกระแส (Rectifier Circuit) ทำหน้าที่อะไร?", options: ["ก. แปลงไฟ AC เป็น AC ที่มีแรงดันลดลง", "ข. แปลงไฟ DC เป็น DC ที่มีแรงดันเพิ่มขึ้น", "ค. แปลงไฟ AC เป็นไฟ DC", "ง. แปลงไฟ DC เป็นไฟ AC"], ans: 2 },
+            { q: "29. วงจรเรียงกระแสแบบบริดจ์ (Bridge Rectifier) ต้องใช้ไดโอดกี่ตัว?", options: ["ก. 1 ตัว", "ข. 2 ตัว", "ค. 3 ตัว", "ง. 4 ตัว"], ans: 3 },
+            { q: "30. หากต้องการลดแรงดันไฟฟ้ากระแสสลับ 220V ให้เหลือ 12V ต้องใช้อุปกรณ์ใด?", options: ["ก. คาปาซิเตอร์ (Capacitor)", "ข. หม้อแปลงไฟฟ้า (Step-down Transformer)", "ค. ไดโอด (Diode)", "ง. มอเตอร์ (Motor)"], ans: 1 },
+            { q: "31. รีเลย์ (Relay) เป็นอุปกรณ์ที่ทำหน้าที่เป็นสวิตช์ โดยอาศัยหลักการทำงานใด?", options: ["ก. พลังงานความร้อน", "ข. พลังงานแม่เหล็กไฟฟ้า", "ค. สารกึ่งตัวนำ", "ง. ปฏิกิริยาเคมี"], ans: 1 },
+            { q: "32. มอเตอร์ไฟฟ้ากระแสตรง ทำหน้าที่ตามข้อใด?", options: ["ก. แปลงพลังงานกลเป็นพลังงานไฟฟ้า", "ข. แปลงพลังงานไฟฟ้าเป็นพลังงานกล", "ค. แปลงไฟฟ้ากระแสสลับเป็นกระแสตรง", "ง. ควบคุมความเร็วของกระแสไฟฟ้า"], ans: 1 },
+            { q: "33. ข้อใดเป็นขั้นตอนแรกที่สำคัญที่สุดในการช่วยเหลือผู้ถูกไฟฟ้าดูด?", options: ["ก. เข้าไปดึงตัวผู้ถูกไฟดูดออกมาทันที", "ข. ตัดแหล่งจ่ายไฟหรือสับคัตเอาต์ให้เร็วที่สุด", "ค. สาดน้ำใส่ผู้ถูกไฟดูดเพื่อลดความร้อน", "ง. รีบทำการปั๊มหัวใจ (CPR) ทันที"], ans: 1 },
+            { q: "34. สาย L (Line) และสาย N (Neutral) ในระบบไฟฟ้าบ้าน แตกต่างกันอย่างไร?", options: ["ก. สาย L มีแรงดันไฟฟ้า (มีไฟ) สาย N ไม่มีแรงดันไฟฟ้า", "ข. สาย L ไม่มีแรงดันไฟฟ้า สาย N มีแรงดันไฟฟ้า (มีไฟ)", "ค. มีแรงดันไฟฟ้า (มีไฟ) ทั้งสองเส้น", "ง. เป็นสายดินทั้งสองเส้น"], ans: 0 },
+            { q: "35. เบรกเกอร์ (Circuit Breaker) มีข้อดีที่เหนือกว่าฟิวส์ (Fuse) อย่างไร?", options: ["ก. เบรกเกอร์ตัดไฟได้เร็วกว่าฟิวส์ทุกชนิด", "ข. เมื่อตัดวงจรแล้ว เบรกเกอร์สามารถรีเซ็ตเพื่อใช้งานใหม่ได้ทันที", "ค. เบรกเกอร์มีราคาถูกกว่า", "ง. เบรกเกอร์ไม่ต้องการการติดตั้งสายดิน"], ans: 1 },
+            { q: "36. อุปกรณ์ใดที่ออกแบบมาเพื่อป้องกันอันตรายจากไฟดูดหรือไฟรั่วโดยตรง?", options: ["ก. MCB (Miniature Circuit Breaker)", "ข. RCBO / RCD (Residual Current Device)", "ค. MCCB (Molded Case Circuit Breaker)", "ง. Magnetic Contactor"], ans: 1 },
+            { q: "37. เซนเซอร์ LDR (Light Dependent Resistor) มีคุณสมบัติตามข้อใด?", options: ["ก. ค่าความต้านทานเปลี่ยนแปลงตามอุณหภูมิ", "ข. ค่าความต้านทานเปลี่ยนแปลงตามความเข้มของแสง", "ค. ผลิตแรงดันไฟฟ้าเมื่อได้รับแสงสว่าง", "ง. เปล่งแสงออกมาเมื่อมีกระแสไฟฟ้าไหลผ่าน"], ans: 1 },
+            { q: "38. วิธีการใดป้องกันอันตรายจากกระแสไฟฟ้ารั่วที่เครื่องใช้ไฟฟ้าโครงโลหะได้ดีที่สุด?", options: ["ก. เปลี่ยนไปใช้ฟิวส์ที่มีขนาดแอมป์สูงขึ้น", "ข. ติดตั้งสายดิน (Grounding) เข้ากับโครงโลหะของอุปกรณ์", "ค. ทาสีกันสนิมทับโครงโลหะ", "ง. พันเทปพันสายไฟบริเวณโครงโลหะให้หนาที่สุด"], ans: 1 },
+            { q: "39. ในการอ่านค่าแถบสีตัวต้านทาน 4 แถบ แถบสีที่ 4 (เช่น สีทอง หรือ สีเงิน) หมายถึงอะไร?", options: ["ก. ค่าตัวตั้งหลักที่ 1", "ข. ค่าตัวคูณ (Multiplier)", "ค. ค่าเปอร์เซ็นต์ความคลาดเคลื่อน (Tolerance)", "ง. ค่าสัมประสิทธิ์อุณหภูมิ"], ans: 2 },
+            { q: "40. อุปกรณ์ใดใช้สำหรับนำตะกั่วเก่าออกจากจุดบัดกรีบนแผ่นปริ้นท์เพื่อเปลี่ยนอะไหล่?", options: ["ก. ฟลักซ์ (Flux)", "ข. คีมปากจิ้งจก", "ค. ที่ดูดตะกั่ว (Desoldering Pump)", "ง. คัตเตอร์ (Cutter)"], ans: 2 }
+        ];
+
+        let currentQuestion = 0;
+        let score = 0;
+        let userAnswers = new Array(questions.length).fill(null);
+        let studentName = "";
+        
+        // ตัวแปรจับเวลา (60 นาที = 3600 วินาที)
+        let timeRemaining = 60 * 60;
+        let timerInterval;
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        function startExam() {
+            const nameInput = document.getElementById('studentName').value.trim();
+            if (nameInput === "") {
+                alert("ACCESS DENIED: กรุณากรอกชื่อ-นามสกุล ก่อนเริ่มทำข้อสอบครับ");
+                return;
+            }
+            studentName = nameInput;
+            showScreen('exam-screen');
+            loadQuestion(currentQuestion);
+            
+            // เริ่มจับเวลา
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+
+        function updateTimer() {
+            if (timeRemaining <= 0) {
+                clearInterval(timerInterval);
+                submitExam(); // หมดเวลาให้ส่งทันที
+                return;
+            }
+            timeRemaining--;
+            let m = Math.floor(timeRemaining / 60);
+            let s = timeRemaining % 60;
+            document.getElementById('timer').innerText = `TIME: ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function loadQuestion(index) {
+            const qObj = questions[index];
+            document.getElementById('question-progress').innerText = `Q: ${index + 1}/${questions.length}`;
+            document.getElementById('question-text').innerText = qObj.q;
+            
+            const optionsContainer = document.getElementById('options-container');
+            optionsContainer.innerHTML = '';
+            
+            qObj.options.forEach((opt, i) => {
+                const li = document.createElement('li');
+                li.className = 'option-item';
+                if (userAnswers[index] === i) li.classList.add('selected');
+                
+                li.innerText = opt;
+                li.onclick = () => selectOption(index, i, li);
+                optionsContainer.appendChild(li);
+            });
+
+            // จัดการปุ่ม
+            if (index === questions.length - 1) {
+                document.getElementById('btn-next').style.display = 'none';
+                document.getElementById('btn-submit').style.display = 'block';
+            } else {
+                document.getElementById('btn-next').style.display = 'block';
+                document.getElementById('btn-submit').style.display = 'none';
+            }
+        }
+
+        function selectOption(qIndex, optIndex, element) {
+            userAnswers[qIndex] = optIndex;
+            // รีเซ็ต style ทุกตัวเลือกก่อน
+            const siblings = element.parentElement.children;
+            for (let el of siblings) {
+                el.classList.remove('selected');
+            }
+            // ใส่ style ตัวที่เลือก
+            element.classList.add('selected');
+        }
+
+        function nextQuestion() {
+            if (userAnswers[currentQuestion] === null) {
+                alert("กรุณาเลือกคำตอบก่อนไปข้อถัดไปครับ");
+                return;
+            }
+            if (currentQuestion < questions.length - 1) {
+                currentQuestion++;
+                loadQuestion(currentQuestion);
+            }
+        }
+
+        function submitExam() {
+            // ตรวจสอบว่าตอบครบหรือไม่ (ข้ามได้ถ้าหมดเวลา แต่เราเตือนนิดหน่อย)
+            if (userAnswers.includes(null) && timeRemaining > 0) {
+                if (!confirm("คุณยังทำข้อสอบไม่ครบทุกข้อ ต้องการส่งคำตอบเลยหรือไม่?")) return;
+            }
+
+            clearInterval(timerInterval);
+            
+            // ตรวจคำตอบ
+            score = 0;
+            userAnswers.forEach((ans, i) => {
+                if (ans === questions[i].ans) score++;
+            });
+
+            showScreen('result-screen');
+            document.getElementById('score-display').innerText = `${score} / ${questions.length}`;
+
+            // ส่งข้อมูลไปยัง Google Apps Script
+            sendDataToGAS(studentName, score);
+        }
+
+        function sendDataToGAS(name, score) {
+            // สร้างข้อมูลเป็น string ส่งแบบ text/plain เพิ่อเลี่ยงปัญหา CORS
+            const payload = JSON.stringify({ name: name, score: score });
+
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                body: payload
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('saving-status').style.display = 'none';
+                if (data.result === 'success') {
+                    document.getElementById('success-message').style.display = 'block';
+                } else {
+                    document.getElementById('error-message').style.display = 'block';
+                }
+            })
+            .catch(error => {
+                document.getElementById('saving-status').style.display = 'none';
+                document.getElementById('error-message').style.display = 'block';
+                console.error('Error:', error);
+            });
+        }
+    </script>
+</body>
+</html>
