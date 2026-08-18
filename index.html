@@ -9,6 +9,7 @@
            CSS: Cyberpunk + Glassmorphism 
            ============================ */
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&family=Share+Tech+Mono&display=swap');
+
         :root {
             --neon-blue: #00f3ff;
             --neon-pink: #ff00ff;
@@ -35,6 +36,7 @@
             justify-content: center;
             align-items: center;
             overflow-x: hidden;
+            
             /* ป้องกันการคลุมดำข้อความเพื่อคัดลอก */
             -webkit-user-select: none;
             -moz-user-select: none;
@@ -72,10 +74,8 @@
             text-transform: uppercase;
         }
 
-        .text-neon-blue { color: var(--neon-blue);
-            text-shadow: 0 0 8px var(--neon-blue); }
-        .text-neon-pink { color: var(--neon-pink);
-            text-shadow: 0 0 8px var(--neon-pink); }
+        .text-neon-blue { color: var(--neon-blue); text-shadow: 0 0 8px var(--neon-blue); }
+        .text-neon-pink { color: var(--neon-pink); text-shadow: 0 0 8px var(--neon-pink); }
         
         /* Dashboard Info Text */
         .info-panel {
@@ -86,8 +86,7 @@
             font-size: 1.1rem;
         }
 
-        .info-panel p { margin-bottom: 5px;
-        }
+        .info-panel p { margin-bottom: 5px; }
 
         /* Inputs & Buttons */
         input[type="text"] {
@@ -102,6 +101,7 @@
             margin-bottom: 20px;
             font-family: 'Share Tech Mono', 'Sarabun', monospace;
             transition: box-shadow 0.3s ease;
+            
             /* อนุญาตให้พิมพ์และเลือกข้อความในช่องกรอกชื่อได้ */
             -webkit-user-select: text;
             -moz-user-select: text;
@@ -195,16 +195,12 @@
         }
 
         /* Screens Management */
-        .screen { display: none;
-        }
-        .screen.active { display: block; animation: fadeIn 0.5s ease;
-        }
+        .screen { display: none; }
+        .screen.active { display: block; animation: fadeIn 0.5s ease; }
 
         @keyframes fadeIn {
-            from { opacity: 0;
-            transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         /* Loader */
@@ -218,8 +214,7 @@
             margin: 20px auto;
         }
 
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg);
-        } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
     </style>
 </head>
@@ -227,6 +222,9 @@
 
     <div class="container">
         
+        <!-- =======================
+             SCREEN 1: Intro
+             ======================= -->
         <div id="intro-screen" class="screen active">
             <h1 class="text-neon-blue" style="margin-bottom: 20px;">SYSTEM // INITIATED</h1>
             
@@ -247,6 +245,9 @@
             <button onclick="showScreen('login-screen')">ถัดไป (NEXT) >></button>
         </div>
 
+        <!-- =======================
+             SCREEN 2: Login / Name Input
+             ======================= -->
         <div id="login-screen" class="screen">
             <h2 class="text-neon-pink" style="margin-bottom: 20px;">USER // AUTHENTICATION</h2>
             <p style="margin-bottom: 10px; color: #ccc;">กรุณากรอกชื่อ-นามสกุล ก่อนทำข้อสอบ</p>
@@ -254,15 +255,20 @@
             <button class="btn-pink" onclick="startExam()">เริ่มทำข้อสอบ (START EXAM)</button>
         </div>
 
+        <!-- =======================
+             SCREEN 3: Exam
+             ======================= -->
         <div id="exam-screen" class="screen">
             <div id="timer">00:00</div>
             <h3 class="text-neon-blue" id="question-progress" style="text-align: left; margin-bottom: 10px;">Q: 1/40</h3>
             
             <div class="question-box" id="question-text">
-                </div>
+                <!-- คำถามจะถูกโหลดมาแสดงที่นี่ -->
+            </div>
             
             <ul class="options-list" id="options-container">
-                </ul>
+                <!-- ตัวเลือกจะถูกโหลดมาแสดงที่นี่ -->
+            </ul>
 
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button id="btn-next" onclick="nextQuestion()">ข้อถัดไป (NEXT)</button>
@@ -270,6 +276,9 @@
             </div>
         </div>
 
+        <!-- =======================
+             SCREEN 4: Result & Saving
+             ======================= -->
         <div id="result-screen" class="screen">
             <h1 class="text-neon-blue">EXAM // COMPLETE</h1>
             <div id="score-display" style="font-size: 2rem; text-align: center; margin: 20px 0; line-height: 1.5; text-shadow: 0 0 15px var(--neon-blue);"></div>
@@ -297,7 +306,7 @@
         // 1. URL สำหรับส่งข้อมูลไปยัง Google Apps Script
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxS-er6wX-HCLF7m23cp4m6ILwp_ZHX7w1IDps-X2yEgZjJLVOBJdiqlSju6FXlrJ8/exec";
 
-        // 2. ข้อมูลต้นฉบับข้อสอบ 40 ข้อ
+        // 2. ข้อมูลข้อสอบ 40 ข้อ
         const rawQuestions = [
             { q: "ตามมาตรฐานสายไฟฟ้าใหม่ (มอก. 11-2553) สายดิน (Ground) กำหนดให้ใช้สายไฟสีใด?", options: ["สีดำ", "สีเทา", "สีน้ำตาล", "สีเขียวแถบเหลือง"], ans: 3 },
             { q: "อุปกรณ์ในข้อใดที่ทำหน้าที่ตัดวงจรเมื่อเกิดกระแสไฟฟ้าลัดวงจรหรือใช้ไฟเกิน?", options: ["สวิตช์ (Switch)", "ฟิวส์ (Fuse)", "รีเลย์ (Relay)", "คาปาซิเตอร์ (Capacitor)"], ans: 1 },
@@ -368,18 +377,19 @@
         // ฟังก์ชันเตรียมข้อมูลข้อสอบ (สุ่มข้อสอบ และ สุ่มตัวเลือก)
         function prepareExamQuestions() {
             let prepared = JSON.parse(JSON.stringify(rawQuestions));
+
             prepared.forEach(q => {
                 let optionsWithFlag = q.options.map((optText, index) => ({
                     text: optText,
                     isCorrect: index === q.ans
                 }));
 
-                
                 shuffleArray(optionsWithFlag);
 
                 q.options = optionsWithFlag.map(item => item.text);
                 q.ans = optionsWithFlag.findIndex(item => item.isCorrect);
             });
+
             shuffleArray(prepared);
             return prepared;
         }
@@ -396,7 +406,9 @@
                 return;
             }
             studentName = nameInput;
+
             alert("⚠️ กฎกติกาและการป้องกันการทุจริต ⚠️\n\n1. ห้ามออกจากหน้าจอ หรือสลับไปแท็บ/โปรแกรมอื่น\n2. ห้ามคัดลอกข้อความใดๆ\n3. ห้ามบันทึกภาพหน้าจอ (Screen Capture / PrintScreen)\n\n*** หากฝ่าฝืน ระบบจะเตือนและ 'หักคะแนน 1 คะแนน' ต่อการทำผิด 1 ครั้งทันที ***\n\nกด OK เพื่อเริ่มการทดสอบ");
+
             questions = prepareExamQuestions();
             userAnswers = new Array(questions.length).fill(null);
             currentQuestion = 0;
@@ -406,7 +418,7 @@
             loadQuestion(currentQuestion);
             
             timerInterval = setInterval(updateTimer, 1000);
-            
+
             // การแก้ไขบั๊ก: หน่วงเวลา 1 วินาทีก่อนที่จะเปิดระบบแจ้งเตือนทุจริต 
             // เพื่อป้องกันบั๊กที่เกิดจากเว็บบราวเซอร์เสียโฟกัสตอนกดปิดหน้าต่างแจ้งเตือน Alert
             setTimeout(() => {
@@ -419,10 +431,12 @@
         // ==========================================
         function handleCheating(reason) {
             if (!isExamActive || cheatCooldown) return;
+            
             cheatCooldown = true;
             cheatDeductions++; // หัก 1 คะแนน
             
             alert(`🚨 ตรวจพบการทุจริต: ${reason}\n\nคุณถูกหัก 1 คะแนน!\n(โดนหักคะแนนสะสมไปแล้ว ${cheatDeductions} คะแนน)`);
+            
             setTimeout(() => { cheatCooldown = false; }, 1000);
         }
 
@@ -432,19 +446,23 @@
                 handleCheating("ออกจากหน้าจอข้อสอบ (เปลี่ยนแท็บ)");
             }
         });
+
         // 2. ดักจับการสลับไปเปิดโปรแกรมอื่น หรือย่อหน้าต่างเบราว์เซอร์
         window.addEventListener("blur", () => {
             handleCheating("สลับไปหน้าต่างหรือโปรแกรมอื่น");
         });
+
         // 3. ดักจับการคัดลอกข้อความ
         document.addEventListener("copy", (e) => {
             handleCheating("พยายามคัดลอกข้อความ");
             e.preventDefault();
         });
+
         // 4. ป้องกันการคลิกขวา
         document.addEventListener("contextmenu", (e) => {
             e.preventDefault();
         });
+
         // 5. ดักจับการกดปุ่ม PrintScreen (ล้างข้อมูล Clipboard ร่วมด้วย)
         window.addEventListener("keyup", (e) => {
             if (e.key === "PrintScreen") {
@@ -454,6 +472,7 @@
                 handleCheating("พยายามบันทึกภาพหน้าจอ (PrintScreen)");
             }
         });
+
         // 6. ดักจับคีย์ลัด Ctrl+C, PrintScreen และคีย์ลัด Screenshot ต่างๆ
         window.addEventListener("keydown", (e) => {
             // ดักจับ Ctrl+C / Cmd+C
@@ -496,6 +515,7 @@
             
             const optionsContainer = document.getElementById('options-container');
             optionsContainer.innerHTML = '';
+            
             qObj.options.forEach((opt, i) => {
                 const li = document.createElement('li');
                 li.className = 'option-item';
@@ -505,6 +525,7 @@
                 li.onclick = () => selectOption(index, i, li);
                 optionsContainer.appendChild(li);
             });
+
             if (index === questions.length - 1) {
                 document.getElementById('btn-next').style.display = 'none';
                 document.getElementById('btn-submit').style.display = 'block';
@@ -547,7 +568,7 @@
             userAnswers.forEach((ans, i) => {
                 if (ans === questions[i].ans) rawScore++;
             });
-            
+
             // คำนวณคะแนนสุทธิหลังหักคะแนนทุจริต
             score = rawScore - cheatDeductions;
             if (score < 0) score = 0;
@@ -566,6 +587,7 @@
 
         function sendDataToGAS(name, score) {
             const payload = JSON.stringify({ name: name, score: score });
+
             fetch(SCRIPT_URL, {
                 method: 'POST',
                 body: payload
