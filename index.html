@@ -1,1 +1,672 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ข้อสอบปลายภาค - งานไฟฟ้าและอิเล็กทรอนิกส์</title>
+    <style>
+        /* ============================
+           CSS: Cyberpunk + Glassmorphism 
+           ============================ */
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --neon-blue: #00f3ff;
+            --neon-pink: #ff00ff;
+            --bg-color: #050510;
+            --glass-bg: rgba(10, 10, 25, 0.6);
+            --glass-border: rgba(0, 243, 255, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(0, 243, 255, 0.08), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(255, 0, 255, 0.08), transparent 25%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow-x: hidden;
+            
+            /* ป้องกันการคลุมดำข้อความเพื่อคัดลอก */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        /* Scanline effect */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15), rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px);
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1), inset 0 0 10px rgba(255, 0, 255, 0.05);
+            position: relative;
+            z-index: 10;
+            margin: 40px 0;
+        }
+
+        h1, h2, h3 {
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .text-neon-blue { color: var(--neon-blue); text-shadow: 0 0 8px var(--neon-blue); }
+        .text-neon-pink { color: var(--neon-pink); text-shadow: 0 0 8px var(--neon-pink); }
+        
+        /* Dashboard Info Text */
+        .info-panel {
+            border-left: 4px solid var(--neon-pink);
+            padding-left: 15px;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            font-size: 1.1rem;
+        }
+
+        .info-panel p { margin-bottom: 5px; }
+
+        /* Inputs & Buttons */
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--neon-blue);
+            color: var(--neon-blue);
+            font-size: 1.2rem;
+            border-radius: 5px;
+            outline: none;
+            margin-bottom: 20px;
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+            transition: box-shadow 0.3s ease;
+            
+            /* อนุญาตให้พิมพ์และเลือกข้อความในช่องกรอกชื่อได้ */
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        input[type="text"]:focus {
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.5);
+        }
+
+        button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: transparent;
+            color: #fff;
+            border: 2px solid var(--neon-blue);
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+        }
+
+        button:hover {
+            background: var(--neon-blue);
+            color: #000;
+            box-shadow: 0 0 20px var(--neon-blue);
+        }
+
+        button.btn-pink {
+            border-color: var(--neon-pink);
+        }
+
+        button.btn-pink:hover {
+            background: var(--neon-pink);
+            box-shadow: 0 0 20px var(--neon-pink);
+        }
+
+        /* Exam Section */
+        #timer {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 1.5rem;
+            color: var(--neon-pink);
+            text-align: right;
+            margin-bottom: 15px;
+            text-shadow: 0 0 10px var(--neon-pink);
+        }
+
+        .question-box {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            line-height: 1.5;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid var(--neon-blue);
+        }
+
+        .options-list {
+            list-style: none;
+        }
+
+        .option-item {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+        }
+
+        .option-item:hover {
+            border-color: var(--neon-blue);
+            background: rgba(0, 243, 255, 0.1);
+        }
+
+        .option-item.selected {
+            border-color: var(--neon-pink);
+            background: rgba(255, 0, 255, 0.1);
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.3);
+        }
+
+        /* Scores Table */
+        .score-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .score-table th, .score-table td {
+            border: 1px solid var(--glass-border);
+            padding: 12px;
+            text-align: left;
+        }
+        .score-table th {
+            color: var(--neon-pink);
+            background: rgba(255, 0, 255, 0.1);
+            font-family: 'Share Tech Mono', 'Sarabun', monospace;
+            text-transform: uppercase;
+        }
+        .score-table tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .score-table tr:hover {
+            background: rgba(0, 243, 255, 0.1);
+        }
+        #scores-content {
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 5px;
+        }
+
+        /* Screens Management */
+        .screen { display: none; }
+        .screen.active { display: block; animation: fadeIn 0.5s ease; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Loader */
+        .loader {
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top: 4px solid var(--neon-blue);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <div id="intro-screen" class="screen active">
+            <h1 class="text-neon-blue" style="margin-bottom: 20px;">SYSTEM // INITIATED</h1>
+            
+            <div class="info-panel">
+                <p><strong>วิทยาลัยสารพัดช่างศรีสะเกษ</strong></p>
+                <p>สำนักงานคณะกรรมการการอาชีวศึกษา กระทรวงศึกษาธิการ</p>
+                <p class="text-neon-pink">ต้นฉบับข้อสอบปลายภาค ภาคเรียนที่ 1/2569 รูปแบบออนไลน์(QR-Code)</p>
+                <br>
+                <p><strong>รหัสวิชา:</strong> 30100-0003</p>
+                <p><strong>ชื่อวิชา:</strong> งานไฟฟ้าและอิเล็กทรอนิกส์ ท-ป-น 1-3-2</p>
+                <p>นักศึกษาสาขาวิชา ช่างยนต์ ระดับชั้น ปวส.1</p>
+                <br>
+                <p><strong>ข้อสอบจำนวน:</strong> 40 ข้อ | <strong>คะแนนเต็ม:</strong> 40 คะแนน</p>
+                <p><strong>เวลา:</strong> 60 นาที</p>
+                <p><strong>ครูผู้ออกข้อสอบ:</strong> นายวิทยากร วรรณา</p>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 30px;">
+                <button onclick="showScreen('login-screen')">ถัดไป เพื่อสอบ (NEXT) >></button>
+                <button class="btn-pink" onclick="fetchAndShowScores()">ดูคะแนนสอบ (VIEW SCORES)</button>
+            </div>
+        </div>
+
+        <div id="scores-screen" class="screen">
+            <h1 class="text-neon-blue" style="margin-bottom: 20px;">LEADERBOARD // SCORES</h1>
+            
+            <div id="scores-loading" style="text-align: center;">
+                <div class="loader"></div>
+                <p class="text-neon-pink">กำลังดึงข้อมูลคะแนนสอบจากระบบ...</p>
+            </div>
+            
+            <div id="scores-content" style="display: none;">
+                <table class="score-table">
+                    <thead>
+                        <tr>
+                            <th>ลำดับ</th>
+                            <th>ชื่อ-นามสกุล</th>
+                            <th>คะแนน</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scores-table-body">
+                        </tbody>
+                </table>
+            </div>
+            
+            <button style="margin-top: 20px;" onclick="showScreen('intro-screen')"><< ย้อนกลับ (BACK)</button>
+        </div>
+
+        <div id="login-screen" class="screen">
+            <h2 class="text-neon-pink" style="margin-bottom: 20px;">USER // AUTHENTICATION</h2>
+            <p style="margin-bottom: 10px; color: #ccc;">กรุณากรอกชื่อ-นามสกุล ก่อนทำข้อสอบ</p>
+            <input type="text" id="studentName" placeholder="ระบุ ชื่อ-นามสกุล ของคุณที่นี่..." autocomplete="off">
+            
+            <div style="display: flex; gap: 10px; flex-direction: column;">
+                <button class="btn-pink" onclick="startExam()">เริ่มทำข้อสอบ (START EXAM)</button>
+                <button style="border-color: rgba(255,255,255,0.3); color: #ccc;" onclick="showScreen('intro-screen')"><< ย้อนกลับ (BACK)</button>
+            </div>
+        </div>
+
+        <div id="exam-screen" class="screen">
+            <div id="timer">00:00</div>
+            <h3 class="text-neon-blue" id="question-progress" style="text-align: left; margin-bottom: 10px;">Q: 1/40</h3>
+            
+            <div class="question-box" id="question-text"></div>
+            
+            <ul class="options-list" id="options-container"></ul>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button id="btn-next" onclick="nextQuestion()">ข้อถัดไป (NEXT)</button>
+                <button id="btn-submit" class="btn-pink" style="display: none;" onclick="submitExam()">ส่งคำตอบ (SUBMIT)</button>
+            </div>
+        </div>
+
+        <div id="result-screen" class="screen">
+            <h1 class="text-neon-blue">EXAM // COMPLETE</h1>
+            <div id="score-display" style="font-size: 2rem; text-align: center; margin: 20px 0; line-height: 1.5; text-shadow: 0 0 15px var(--neon-blue);"></div>
+            
+            <div id="saving-status" style="text-align: center;">
+                <div class="loader"></div>
+                <p class="text-neon-pink">กำลังอัปโหลดข้อมูลเข้าสู่ระบบ...</p>
+            </div>
+            
+            <div id="success-message" style="display: none; text-align: center; color: #0f0;">
+                <p>บันทึกข้อมูลเสร็จสมบูรณ์ ขอบคุณที่เข้าร่วมการทดสอบ</p>
+            </div>
+            <div id="error-message" style="display: none; text-align: center; color: #f00;">
+                <p>เกิดข้อผิดพลาดในการบันทึกข้อมูล โปรดแจ้งผู้คุมสอบ</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        /* ============================
+           JAVASCRIPT LOGIC
+           ============================ */
+
+        // URL GAS ของคุณ
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxS-er6wX-HCLF7m23cp4m6ILwp_ZHX7w1IDps-X2yEgZjJLVOBJdiqlSju6FXlrJ8/exec";
+
+        const rawQuestions = [
+            { q: "ส่วนใดในระบบทำหน้าที่เป็นศูนย์กลางข้อมูลเรียลไทม์ที่เว็บแอปและตู้ใช้ร่วมกัน?", options: ["Firebase RTDB", "Google Sheet", "จอ TFT", "เครื่องรับเหรียญ"], ans: 0 },
+            { q: "ลำดับการเชื่อมต่อของระบบทั้ง 5 ส่วนที่ถูกต้องคือข้อใด?", options: ["เว็บแอป ↔ ESP32 firmware ↔ Google Sheet ↔ Firebase RTDB ↔ Hardware", "Google Sheet ↔ เว็บแอป ↔ Firebase RTDB ↔ ESP32 firmware ↔ Hardware", "Firebase RTDB ↔ Google Sheet ↔ Hardware ↔ เว็บแอป ↔ ESP32 firmware", "Hardware ↔ Google Sheet ↔ Firebase RTDB ↔ ESP32 firmware ↔ เว็บแอป"], ans: 1 },
+            { q: "ส่วนใดที่เว็บแอปคุยด้วยผ่าน HTTPS GET (Apps Script) เพื่อดึงข้อสอบและอันดับ?", options: ["ESP32 firmware", "จอ TFT", "Google Sheet", "คีย์แพด 4x4"], ans: 2 },
+            { q: "ข้อใดไม่ใช่หน้าที่ของ Google Sheet ในระบบนี้?", options: ["เก็บคลังข้อสอบอังกฤษ–ไทย", "บันทึกชื่อและคะแนนของผู้เรียน", "จัดอันดับผู้ทำคะแนนสูงสุด", "สั่งรีเลย์ให้มอเตอร์หมุนจ่ายรางวัล"], ans: 3 },
+            { q: "เหตุผลที่ Google Sheet ส่งค่า Firebase config ให้เว็บแอปตอนเปิดหน้าคือข้อใด?", options: ["เพื่อไม่ต้องฝังค่าไว้ในหน้าเว็บโดยตรง", "เพื่อให้เว็บแอปสั่งรีเลย์ได้โดยตรง", "เพื่อให้ ESP32 อ่านคะแนนผู้เรียนได้", "เพื่อให้ Telegram ส่งข้อความได้เร็วขึ้น"], ans: 0 },
+            { q: "เว็บแอปใช้เทคโนโลยีใดในการตรวจการออกเสียงของผู้เรียน?", options: ["เซ็นเซอร์ Opto", "การรู้จำเสียงพูด (Speech Recognition)", "การสแกน QR Code", "การสุ่ม OTP"], ans: 1 },
+            { q: "เว็บแอปสุ่มข้อสอบอย่างไรเพื่อไม่ให้ซ้ำข้ามรอบ?", options: ["ใช้ข้อแรกของชีตเสมอ", "ให้ ESP32 เลือกข้อสอบแทน", "จำข้อที่ถามไปแล้วและเลือกข้อใหม่", "ให้แอดมินเลือกทีละข้อ"], ans: 2 },
+            { q: "เมื่อผู้เรียนผ่านเกณฑ์ เว็บแอปจะทำสิ่งใดต่อ?", options: ["สั่งมอเตอร์หมุนทันที", "ส่งคะแนนเข้าเครื่องรับเหรียญ", "ปิดระบบ Wi-Fi ของตู้", "สร้าง OTP 4 หลักและเขียนลง Firebase"], ans: 3 },
+            { q: "OTP ที่เว็บแอปสร้างขึ้นมีกี่หลัก?", options: ["4 หลัก", "3 หลัก", "6 หลัก", "8 หลัก"], ans: 0 },
+            { q: "ข้อใดเป็นหน้าที่ของแผงแอดมินในเว็บแอป?", options: ["วัดแรงดันไฟฟ้าของมอเตอร์", "ปรับสต๊อกและเปิดโหมดปิดปรับปรุง", "เปลี่ยนเฟิร์มแวร์ของ ESP32", "เชื่อมต่อขา GPIO ของรีเลย์"], ans: 1 },
+            { q: "ข้อมูลใน Firebase RTDB ของระบบนี้อยู่ใต้โหนดหลักใด?", options: ["system/", "kiosk/", "machine/", "sheet/"], ans: 2 },
+            { q: "โหนดใดเก็บค่า valid และ userName ของแต่ละรหัส OTP?", options: ["stock/slot1", "last_heartbeat", "rewards", "otps/{รหัส}"], ans: 3 },
+            { q: "โหนด stock/slot1 และ slot2 เก็บข้อมูลอะไร?", options: ["จำนวนรางวัลในช่อง A และ B", "รหัส OTP ของผู้เรียน", "คะแนนสอบของผู้เรียน", "เวลาที่ตู้ออนไลน์ล่าสุด"], ans: 0 },
+            { q: "โหนด last_heartbeat ใช้ทำอะไร?", options: ["เก็บรูปรางวัล", "ให้ตู้ส่งเวลาล่าสุดเพื่อบอกว่ายังออนไลน์", "เก็บข้อสอบสำรอง", "บันทึกชื่อผู้ใช้ปัจจุบัน"], ans: 1 },
+            { q: "ค่าสถานะตู้ (status) ในเอกสารระบุตัวอย่างไว้ตามข้อใด?", options: ["open, close, wait", "start, stop, pause", "ready, unlocked, error", "pass, fail, retry"], ans: 2 },
+            { q: "Firebase RTDB ต่างจาก Google Sheet ในระบบนี้อย่างไร?", options: ["RTDB เก็บเฉพาะข้อสอบ ส่วน Sheet เก็บ OTP", "RTDB ทำงานบนหน้าจอ TFT ส่วน Sheet ทำงานบนมอเตอร์", "ทั้งสองอย่างเก็บข้อมูลชนิดเดียวกันและไม่มีความแตกต่าง", "RTDB ใช้ข้อมูลที่ต้องอัปเดตเรียลไทม์ระหว่างเว็บกับตู้ ส่วน Sheet เก็บข้อมูลการเรียนแบบถาวร"], ans: 3 },
+            { q: "เว็บแอปเชื่อมต่อกับ Firebase ผ่านช่องทางใด?", options: ["Firebase JS SDK", "ขา GPIO", "HTTPS GET ผ่าน Apps Script", "สัญญาณ Opto"], ans: 0 },
+            { q: "ESP32 เชื่อมต่อกับ Firebase ผ่านช่องทางใด?", options: ["สายคีย์แพด", "Wi-Fi บน TLS", "สัญญาณแสงของ Opto", "Bluetooth ผ่านมือถือ"], ans: 1 },
+            { q: "ESP32 ใช้ไลบรารีใดเพื่อให้ตั้งค่า Wi-Fi ผ่านหน้าเว็บได้เอง?", options: ["Keypad", "TFT_eSPI", "WiFiManager", "UniversalTelegramBot"], ans: 2 },
+            { q: "ESP32 ติดตามการเปลี่ยนแปลงของสต๊อกด้วยวิธีใด?", options: ["อ่านจาก Google Sheet ทุกวัน", "รอให้ผู้ใช้กดปุ่มรีเซ็ต", "ใช้ Bluetooth รับค่าจากมือถือ", "ฟังแบบ stream และสำรองด้วยการ poll ทุก 3 วินาที"], ans: 3 },
+            { q: "เมื่อ ESP32 ตรวจ OTP ผ่านแล้ว จะตั้งค่า valid เป็นอะไรเพื่อให้ใช้ได้ครั้งเดียว?", options: ["false", "true", "null", "1"], ans: 0 },
+            { q: "หลังตรวจ OTP ถูกต้อง สถานะตู้จะถูกตั้งเป็นค่าใด?", options: ["error", "unlocked", "ready", "offline"], ans: 1 },
+            { q: "Task ทั้ง 3 บน Core 0 ของ ESP32 สแกนอะไรบ้าง?", options: ["จอ TFT มอเตอร์ และรีเลย์", "Wi-Fi Telegram และ Firebase", "คีย์แพด เหรียญ และสวิตช์ A/B", "QR Code OTP และสต๊อก"], ans: 2 },
+            { q: "ฟังก์ชัน loop() ที่ดูแลการคุยกับ Firebase ทำงานบน Core ใด?", options: ["Core 0", "Core 2", "Core 3", "Core 1"], ans: 3 },
+            { q: "ESP32 ส่งแจ้งเตือน เช่น มอเตอร์ขัดข้อง ไปยังช่องทางใด?", options: ["Telegram", "LINE Notify", "Facebook Messenger", "อีเมลผ่าน Google Sheet"], ans: 0 },
+            { q: "กรณีใดที่ ESP32 เข้าสู่โหมดออฟไลน์?", options: ["ผู้เรียนสอบไม่ผ่าน", "Wi-Fi หรืออินเทอร์เน็ตหลุด", "สต๊อกเต็ม", "มีการกด OTP ซ้ำ"], ans: 1 },
+            { q: "ในโหมดออฟไลน์ ตู้ทำสิ่งใด?", options: ["เปิดรับเหรียญตามปกติ", "จ่ายรางวัลโดยไม่ต้องใช้ OTP", "แสดงข้อความ \"ใช้งานไม่ได้ชั่วคราว\" และตัดไฟเครื่องรับเหรียญ", "ส่งข้อสอบให้ผู้เรียนทางจอ TFT"], ans: 2 },
+            { q: "จอ TFT ของตู้ทำหน้าที่อะไร?", options: ["รับเหรียญ 10 บาท", "ตรวจว่าของตกจริง", "หมุนมอเตอร์จ่ายของ", "แสดง QR Code และสถานะ"], ans: 3 },
+            { q: "คีย์แพด 4×4 ในตู้ใช้ทำอะไร?", options: ["กรอกรหัส OTP", "ใส่ชื่อ-นามสกุลผู้เรียน", "ตอบข้อสอบปรนัย", "ตั้งค่า Wi-Fi ของตู้"], ans: 0 },
+            { q: "เหตุผลที่ให้ ESP32 ตัดไฟเครื่องรับเหรียญผ่านรีเลย์คือข้อใด?", options: ["เพื่อให้เหรียญตกเร็วขึ้น", "เพื่อให้ปลอดภัยเมื่อระบบดับหรือรีเซ็ต", "เพื่อเพิ่มความเร็วของ Wi-Fi", "เพื่อให้จอ TFT สว่างขึ้น"], ans: 1 },
+            { q: "รีเลย์ 2 ช่องของตู้ใช้สั่งอุปกรณ์ใด?", options: ["คีย์แพดและจอ TFT", "เครื่องรับเหรียญและ Wi-Fi", "มอเตอร์จ่ายรางวัลช่อง A และ B", "เซ็นเซอร์ Opto และสวิตช์"], ans: 2 },
+            { q: "เซ็นเซอร์ Opto ใช้ตรวจอะไร?", options: ["ว่าผู้เรียนกด OTP ถูกหรือไม่", "ว่า Wi-Fi แรงเพียงพอหรือไม่", "ว่าเหรียญเป็นของแท้หรือไม่", "ว่าของตกจริงหรือสินค้าติดขัด"], ans: 3 },
+            { q: "ESP32 สื่อสารกับ Hardware ผ่านช่องทางใด?", options: ["ขา GPIO", "Firebase JS SDK", "HTTPS GET", "Apps Script"], ans: 0 },
+            { q: "เครื่องรับเหรียญของตู้รองรับเหรียญราคาเท่าใด?", options: ["1 บาท", "10 บาท", "5 บาท", "20 บาท"], ans: 1 },
+            { q: "ขั้นแรกของเส้นทางการใช้งาน 1 รอบคือข้อใด?", options: ["กดสวิตช์ A หรือ B", "กรอก OTP ที่คีย์แพด", "สแกน QR บนจอตู้เพื่อเปิดเว็บแอป", "รอ ESP32 หักสต๊อก"], ans: 2 },
+            { q: "ก่อนเว็บแอปเขียน OTP ลง Firebase ต้องเกิดเหตุการณ์ใดขึ้นก่อน?", options: ["ผู้เรียนหยอดเหรียญ 10 บาท", "แอดมินสั่งหมุนมอเตอร์", "ESP32 รีสตาร์ท", "ผู้เรียนพูดตอบข้อสอบผ่านเกณฑ์"], ans: 3 },
+            { q: "เมื่อผู้เรียนกด OTP ที่คีย์แพด ESP32 จะทำสิ่งใด?", options: ["ตรวจ OTP ใน Firebase แล้วตั้ง status = unlocked", "ส่งคะแนนลง Google Sheet", "สุ่มข้อสอบข้อใหม่", "ตัดไฟจอ TFT ทันที"], ans: 0 },
+            { q: "หลัง Opto ยืนยันว่าของตกแล้ว ESP32 ทำสิ่งใด?", options: ["ลบข้อสอบออกจาก Google Sheet", "หักสต๊อกใน Firebase ให้แอดมินเห็นเรียลไทม์", "สร้าง OTP ใหม่ให้ผู้เรียน", "ปิดการเชื่อมต่อ Wi-Fi"], ans: 1 },
+            { q: "แหล่งข้อมูลจริงของจำนวนสต๊อกอยู่ที่ใด?", options: ["ตัวแปรในหน่วยความจำของ ESP32", "จอ TFT", "Firebase RTDB (ค่าในตู้เป็นแคช)", "Google Sheet"], ans: 2 },
+            { q: "นอกจาก OTP แล้ว ผู้ใช้ปลดล็อกตู้ได้อีกวิธีใด?", options: ["กดปุ่ม * ค้างไว้", "สแกนลายนิ้วมือ", "ส่งข้อความ Telegram", "หยอดเหรียญ 10 บาท"], ans: 3 }
+        ];
+
+        let questions = [];
+        let currentQuestion = 0;
+        let score = 0;
+        let userAnswers = [];
+        let studentName = "";
+        
+        let isExamActive = false;
+        let cheatDeductions = 0;
+        let cheatCooldown = false;
+
+        let timeRemaining = 60 * 60;
+        let timerInterval;
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function prepareExamQuestions() {
+            let prepared = JSON.parse(JSON.stringify(rawQuestions));
+            prepared.forEach(q => {
+                let optionsWithFlag = q.options.map((optText, index) => ({
+                    text: optText,
+                    isCorrect: index === q.ans
+                }));
+                shuffleArray(optionsWithFlag);
+                q.options = optionsWithFlag.map(item => item.text);
+                q.ans = optionsWithFlag.findIndex(item => item.isCorrect);
+            });
+            shuffleArray(prepared);
+            return prepared;
+        }
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // ==========================================
+        // ฟังก์ชันดึงคะแนนผ่าน SCRIPT_URL ที่มีอยู่แล้ว
+        // ==========================================
+        function fetchAndShowScores() {
+            showScreen('scores-screen');
+            document.getElementById('scores-loading').style.display = 'block';
+            document.getElementById('scores-content').style.display = 'none';
+            document.getElementById('scores-table-body').innerHTML = '';
+
+            // ดึงข้อมูลด้วยวิธี GET request จาก Web App URL ที่คุณผูกไว้
+            fetch(SCRIPT_URL)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('scores-loading').style.display = 'none';
+                document.getElementById('scores-content').style.display = 'block';
+                const tbody = document.getElementById('scores-table-body');
+                
+                // ตรวจสอบข้อมูลที่ได้รับ (สมมติว่า GAS ส่งกลับมาเป็น data.data ที่เป็น Array)
+                if(data && data.data && data.data.length > 0) {
+                    data.data.forEach((row, index) => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td>${row.name || 'ไม่ระบุชื่อ'}</td>
+                            <td class="text-neon-pink" style="font-weight:bold;">${row.score !== undefined ? row.score : '-'} / 40</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    // กรณีไม่มีข้อมูล หรือโค้ด GAS ยังไม่ได้เขียนส่วนการอ่านค่ากลับมา
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">ยังไม่มีข้อมูลผู้เข้าสอบในระบบ หรือรอการตั้งค่าฝั่ง GAS (ฟังก์ชัน doGet)</td></tr>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('scores-loading').style.display = 'none';
+                document.getElementById('scores-content').style.display = 'block';
+                document.getElementById('scores-table-body').innerHTML = `
+                    <tr>
+                        <td colspan="3" style="text-align:center; color:#ff4444;">
+                            ไม่สามารถดึงข้อมูลได้<br>
+                            <span style="font-size:0.9rem;">(โปรดตรวจสอบว่าฝั่ง GAS มีฟังก์ชัน doGet(e) สำหรับคืนค่า JSON หรือไม่)</span>
+                        </td>
+                    </tr>`;
+                console.error('Error fetching scores:', error);
+            });
+        }
+        // ==========================================
+
+        function startExam() {
+            const nameInput = document.getElementById('studentName').value.trim();
+            if (nameInput === "") {
+                alert("ACCESS DENIED: กรุณากรอกชื่อ-นามสกุล ก่อนเริ่มทำข้อสอบครับ");
+                return;
+            }
+            studentName = nameInput;
+
+            alert("⚠️ กฎกติกาและการป้องกันการทุจริต ⚠️\n\n1. ห้ามออกจากหน้าจอ หรือสลับไปแท็บ/โปรแกรมอื่น\n2. ห้ามคัดลอกข้อความใดๆ\n3. ห้ามบันทึกภาพหน้าจอ (Screen Capture / PrintScreen)\n\n*** หากฝ่าฝืน ระบบจะเตือนและ 'หักคะแนน 1 คะแนน' ต่อการทำผิด 1 ครั้งทันที ***\n\nกด OK เพื่อเริ่มการทดสอบ");
+
+            questions = prepareExamQuestions();
+            userAnswers = new Array(questions.length).fill(null);
+            currentQuestion = 0;
+            cheatDeductions = 0;
+
+            showScreen('exam-screen');
+            loadQuestion(currentQuestion);
+            
+            timerInterval = setInterval(updateTimer, 1000);
+
+            setTimeout(() => {
+                isExamActive = true;
+            }, 1000);
+        }
+
+        // ระบบป้องกันทุจริต
+        function handleCheating(reason) {
+            if (!isExamActive || cheatCooldown) return;
+            cheatCooldown = true;
+            cheatDeductions++;
+            alert(`🚨 ตรวจพบการทุจริต: ${reason}\n\nคุณถูกหัก 1 คะแนน!\n(โดนหักคะแนนสะสมไปแล้ว ${cheatDeductions} คะแนน)`);
+            setTimeout(() => { cheatCooldown = false; }, 1000);
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) handleCheating("ออกจากหน้าจอข้อสอบ (เปลี่ยนแท็บ)");
+        });
+
+        window.addEventListener("blur", () => {
+            handleCheating("สลับไปหน้าต่างหรือโปรแกรมอื่น");
+        });
+
+        document.addEventListener("copy", (e) => {
+            handleCheating("พยายามคัดลอกข้อความ");
+            e.preventDefault();
+        });
+
+        document.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.key === "PrintScreen") {
+                if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText("");
+                handleCheating("พยายามบันทึกภาพหน้าจอ (PrintScreen)");
+            }
+        });
+
+        window.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+                handleCheating("พยายามคัดลอกข้อความโดยใช้คีย์ลัด");
+                e.preventDefault();
+            }
+            if (e.key === "PrintScreen") {
+                handleCheating("พยายามบันทึกภาพหน้าจอ (PrintScreen)");
+                e.preventDefault();
+            }
+            if ((e.key === 'S' || e.key === 's' || e.key === '3' || e.key === '4' || e.key === '5') && 
+                (e.shiftKey && (e.metaKey || e.ctrlKey))) {
+                handleCheating("พยายามใช้คีย์ลัดบันทึกภาพหน้าจอ");
+                e.preventDefault();
+            }
+        });
+
+        function updateTimer() {
+            if (timeRemaining <= 0) {
+                clearInterval(timerInterval);
+                submitExam();
+                return;
+            }
+            timeRemaining--;
+            let m = Math.floor(timeRemaining / 60);
+            let s = timeRemaining % 60;
+            document.getElementById('timer').innerText = `TIME: ${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function loadQuestion(index) {
+            const qObj = questions[index];
+            document.getElementById('question-progress').innerText = `Q: ${index + 1}/${questions.length}`;
+            document.getElementById('question-text').innerText = qObj.q;
+            
+            const optionsContainer = document.getElementById('options-container');
+            optionsContainer.innerHTML = '';
+            
+            qObj.options.forEach((opt, i) => {
+                const li = document.createElement('li');
+                li.className = 'option-item';
+                if (userAnswers[index] === i) li.classList.add('selected');
+                
+                li.innerText = opt;
+                li.onclick = () => selectOption(index, i, li);
+                optionsContainer.appendChild(li);
+            });
+
+            if (index === questions.length - 1) {
+                document.getElementById('btn-next').style.display = 'none';
+                document.getElementById('btn-submit').style.display = 'block';
+            } else {
+                document.getElementById('btn-next').style.display = 'block';
+                document.getElementById('btn-submit').style.display = 'none';
+            }
+        }
+
+        function selectOption(qIndex, optIndex, element) {
+            userAnswers[qIndex] = optIndex;
+            const siblings = element.parentElement.children;
+            for (let el of siblings) {
+                el.classList.remove('selected');
+            }
+            element.classList.add('selected');
+        }
+
+        function nextQuestion() {
+            if (userAnswers[currentQuestion] === null) {
+                alert("กรุณาเลือกคำตอบก่อนไปข้อถัดไปครับ");
+                return;
+            }
+            if (currentQuestion < questions.length - 1) {
+                currentQuestion++;
+                loadQuestion(currentQuestion);
+            }
+        }
+
+        function submitExam() {
+            if (userAnswers.includes(null) && timeRemaining > 0) {
+                if (!confirm("คุณยังทำข้อสอบไม่ครบทุกข้อ ต้องการส่งคำตอบเลยหรือไม่?")) return;
+            }
+
+            clearInterval(timerInterval);
+            isExamActive = false;
+            
+            let rawScore = 0;
+            userAnswers.forEach((ans, i) => {
+                if (ans === questions[i].ans) rawScore++;
+            });
+
+            score = rawScore - cheatDeductions;
+            if (score < 0) score = 0;
+
+            showScreen('result-screen');
+            
+            document.getElementById('score-display').innerHTML = `
+                คะแนนสุทธิ: ${score} / ${questions.length}<br>
+                <span style="font-size: 1.2rem; color: var(--neon-pink); display: block; margin-top: 15px;">
+                    (ทำได้ ${rawScore} คะแนน, หักจากการทุจริต ${cheatDeductions} คะแนน)
+                </span>
+            `;
+
+            sendDataToGAS(studentName, score);
+        }
+
+        function sendDataToGAS(name, score) {
+            const payload = JSON.stringify({ name: name, score: score });
+
+            fetch(SCRIPT_URL, {
+                method: 'POST',
+                body: payload
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('saving-status').style.display = 'none';
+                if (data.result === 'success') {
+                    document.getElementById('success-message').style.display = 'block';
+                } else {
+                    document.getElementById('error-message').style.display = 'block';
+                }
+            })
+            .catch(error => {
+                document.getElementById('saving-status').style.display = 'none';
+                document.getElementById('error-message').style.display = 'block';
+                console.error('Error:', error);
+            });
+        }
+    </script>
+</body>
+</html>
 
