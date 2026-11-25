@@ -1,305 +1,2374 @@
-/**
- * สถานีประเมินการอ่านภาษาไทย (Thai Reading Assessment Station)
- * Google Apps Script สำหรับ index.html  — วางทับโค้ดเดิมใน Code.gs ของ Google Sheet
- *
- * หน้าที่:
- *   GET (ไม่มีพารามิเตอร์)        -> ส่งรายการประโยคจากแท็บ ThaiQuestions (JSON array)
- *   GET ?action=getRank           -> ส่งตารางอันดับจากแท็บ ThaiRank (JSON array)
- *   GET ?name=..&score=..&pass=.. -> บันทึกผลการประเมิน ลงแท็บ ThaiLog และสะสมคะแนนใน ThaiRank
- *   เมนู "📖 สถานีอ่านไทย" ในชีต -> ตั้งค่าชีตครั้งแรก / เติมประโยคตัวอย่าง ป.1-ป.2
- *
- * วิธีใช้ครั้งแรก: ดูขั้นตอนท้ายไฟล์นี้
- */
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>สถานีประเมินการอ่านภาษาไทย | Thai Reading Assessment Station</title>
 
-// ---------- ตั้งค่า ----------
-const SPREADSHEET_ID = '';            // ว่าง = ใช้ชีตที่สคริปต์ผูกอยู่ (Extensions > Apps Script จากชีตนั้น) / ถ้าเป็นสคริปต์แยก ให้ใส่ ID ของชีต
-const SHEET_QUESTIONS = 'ThaiQuestions';
-const SHEET_RANK      = 'ThaiRank';
-const SHEET_LOG       = 'ThaiLog';
-const RANK_LIMIT      = 50;           // จำนวนอันดับที่ส่งให้หน้าเว็บ
-const LEVELS          = ['P1', 'P2']; // เพิ่มระดับใหม่ (เช่น 'P3') ได้ที่นี่ แล้วเพิ่ม <option> และ LEVEL_LABELS ใน index.html ด้วย
-const DIFFICULTIES    = ['LOW', 'MEDIUM', 'HIGH'];
+<!-- 🚀 สคริปต์บังคับเปิดใน Google Chrome / External Browser อัตโนมัติ -->
+<script>
+(function forceExternalBrowser() {
+    var userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    var currentUrl = window.location.href;
 
-const Q_HEADERS    = ['level', 'difficulty', 'text', 'topic', 'active'];
-const RANK_HEADERS = ['name', 'attempts', 'score', 'pass', 'fail', 'lastLevel', 'updatedAt'];
-const LOG_HEADERS  = ['timestamp', 'name', 'level', 'mode', 'questions', 'pass', 'fail', 'score'];
+    var isLine = /Line/i.test(userAgent);
+    var isFacebook = /FBAN|FBAV|Messenger/i.test(userAgent);
+    var isAndroid = /Android/i.test(userAgent);
 
-function getSS_() {
-  return SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActiveSpreadsheet();
-}
-
-function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
-}
-
-// ---------- Web App ----------
-function doGet(e) {
-  try {
-    const p = (e && e.parameter) || {};
-    if (p.action === 'getRank') return json_(getRank_());
-    if (p.name !== undefined && p.name !== '') return json_(saveResult_(p));
-    return json_(getQuestions_());
-  } catch (err) {
-    return json_({ error: String(err && err.message ? err.message : err) });
-  }
-}
-
-// ส่งประโยคทั้งหมดที่ active ไม่ใช่ N/NO/FALSE/0 (หน้าเว็บกรองระดับ/ความยากเอง)
-function getQuestions_() {
-  const sh = getSS_().getSheetByName(SHEET_QUESTIONS);
-  if (!sh || sh.getLastRow() < 2) return [];
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, Q_HEADERS.length).getValues();
-  const out = [];
-  rows.forEach(function (r) {
-    const level = String(r[0]).trim().toUpperCase();
-    const diff  = String(r[1]).trim().toUpperCase();
-    const text  = String(r[2]).replace(/\s+/g, ' ').trim();
-    const topic = String(r[3]).trim();
-    const active = String(r[4]).trim().toUpperCase();
-    if (!level || !text) return;
-    if (active === 'N' || active === 'NO' || active === 'FALSE' || active === '0' || active === 'ไม่ใช้') return;
-    out.push({ level: level, difficulty: diff || 'MEDIUM', text: text, hint: topic });
-  });
-  return out;
-}
-
-// อันดับ: เรียงตามคะแนนสะสมมาก -> น้อย (คะแนนเท่ากัน ดูจำนวนรอบน้อยกว่าก่อน)
-function getRank_() {
-  const sh = getSS_().getSheetByName(SHEET_RANK);
-  if (!sh || sh.getLastRow() < 2) return [];
-  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, RANK_HEADERS.length).getValues();
-  return rows
-    .filter(function (r) { return String(r[0]).trim() !== ''; })
-    .map(function (r) { return { name: String(r[0]), attempts: Number(r[1]) || 1, score: Number(r[2]) || 0 }; })
-    .sort(function (a, b) { return b.score - a.score || a.attempts - b.attempts; })
-    .slice(0, RANK_LIMIT);
-}
-
-function cleanName_(raw) {
-  let n = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 40);
-  if (/^[=+\-@]/.test(n)) n = "'" + n;     // กันสูตรแฝงในชื่อ (formula injection)
-  return n || 'ผู้เข้าประเมินไม่ระบุชื่อ';
-}
-
-function num_(v, max) {
-  const n = Math.round(Number(v));
-  if (!isFinite(n) || n < 0) return 0;
-  return Math.min(n, max);
-}
-
-// บันทึกผล 1 รอบ: เพิ่มแถวใน ThaiLog + สะสมคะแนนของชื่อนั้นใน ThaiRank
-function saveResult_(p) {
-  const name  = cleanName_(p.name);
-  const score = num_(p.score, 100000);
-  const pass  = num_(p.pass, 1000);
-  const fail  = num_(p.fail, 1000);
-  const total = num_(p.total, 1000);
-  const level = String(p.level || '').toUpperCase().slice(0, 12);
-  const mode  = (p.mode === 'practice') ? 'practice' : 'reward';
-  const now   = new Date();
-
-  const lock = LockService.getScriptLock();
-  lock.waitLock(15000);                      // กันหลายเครื่องส่งพร้อมกันแล้วคะแนนทับกัน
-  try {
-    const ss = getSS_();
-    ensureSheet_(ss, SHEET_LOG, LOG_HEADERS);
-    ensureSheet_(ss, SHEET_RANK, RANK_HEADERS);
-
-    ss.getSheetByName(SHEET_LOG).appendRow([now, name, level, mode, total, pass, fail, score]);
-
-    const rk = ss.getSheetByName(SHEET_RANK);
-    const last = rk.getLastRow();
-    let rowIdx = -1;
-    if (last >= 2) {
-      const names = rk.getRange(2, 1, last - 1, 1).getValues();
-      const key = name.toLowerCase();
-      for (let i = 0; i < names.length; i++) {
-        if (String(names[i][0]).trim().toLowerCase() === key) { rowIdx = i + 2; break; }
-      }
+    if (isLine) {
+        if (currentUrl.indexOf("openExternalBrowser=1") === -1) {
+            var separator = currentUrl.indexOf("?") > -1 ? "&" : "?";
+            window.location.href = currentUrl + separator + "openExternalBrowser=1";
+        }
+    } else if (isFacebook && isAndroid) {
+        var urlWithoutProtocol = currentUrl.replace(/^https?:\/\//, "");
+        var chromeIntent = "intent://" + urlWithoutProtocol + "#Intent;scheme=https;package=com.android.chrome;end;";
+        window.location.href = chromeIntent;
     }
-    if (rowIdx === -1) {
-      rk.appendRow([name, 1, score, pass, fail, level, now]);
-    } else {
-      const cur = rk.getRange(rowIdx, 1, 1, RANK_HEADERS.length).getValues()[0];
-      rk.getRange(rowIdx, 1, 1, RANK_HEADERS.length).setValues([[
-        cur[0],
-        (Number(cur[1]) || 0) + 1,
-        (Number(cur[2]) || 0) + score,
-        (Number(cur[3]) || 0) + pass,
-        (Number(cur[4]) || 0) + fail,
-        level || cur[5],
-        now
-      ]]);
-    }
-    return { ok: true, name: name, score: score };
-  } finally {
-    lock.releaseLock();
-  }
+})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Prompt:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+<!-- นำเข้า Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<style>
+:root {
+    --bg1:#040816;
+    --bg2:#0a1025;
+    --panel:rgba(12,18,40,0.72);
+    --line:rgba(255,255,255,0.10);
+    --cyan:#35d8ff;
+    --blue:#6d7cff;
+    --violet:#b56cff;
+    --green:#1dff95;
+    --red:#ff4d6d;
+    --text:#edf5ff;
+    --muted:#9db2d9;
+    --gold: #ffcc00;
+    --silver: #a0a5b1;
+    --bronze: #cd7f32;
 }
 
-// ---------- ตั้งค่าชีต ----------
-function ensureSheet_(ss, name, headers) {
-  let sh = ss.getSheetByName(name);
-  if (!sh) sh = ss.insertSheet(name);
-  if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sh.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#d9ecff');
-    sh.setFrozenRows(1);
-  }
-  return sh;
+* { box-sizing:border-box; }
+
+body {
+    margin:0; padding:20px; font-family:'Prompt',sans-serif; color:var(--text);
+    background: radial-gradient(circle at 10% 20%, rgba(53,216,255,0.18), transparent 25%),
+                radial-gradient(circle at 90% 10%, rgba(181,108,255,0.15), transparent 25%),
+                linear-gradient(to bottom,var(--bg1),var(--bg2));
+    overflow-x:hidden; min-height:100vh;
 }
 
-// รันครั้งแรกครั้งเดียว: สร้างแท็บ + หัวตาราง + ตัวเลือก dropdown + ใส่ประโยคตัวอย่าง (ถ้าแท็บ ThaiQuestions ยังว่าง)
-function setupSheets() {
-  const ss = getSS_();
-  const q = ensureSheet_(ss, SHEET_QUESTIONS, Q_HEADERS);
-  ensureSheet_(ss, SHEET_RANK, RANK_HEADERS);
-  ensureSheet_(ss, SHEET_LOG, LOG_HEADERS);
+/* GRID EFFECT & FLOATING LIGHTS */
+body::before {
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size:40px 40px; opacity:0.25;
+    z-index: 0;
+}
+.orb { position:fixed; border-radius:50%; filter:blur(45px); opacity:0.25; pointer-events:none; animation:float 8s ease-in-out infinite; z-index: 0;}
+.orb1 { width:240px; height:240px; background:var(--cyan); top:60px; left:-60px; }
+.orb2 { width:300px; height:300px; background:var(--violet); top:100px; right:-100px; animation-delay:-3s; }
+.orb3 { width:180px; height:180px; background:var(--blue); bottom:-50px; left:45%; animation-delay:-5s; }
+@keyframes float { 0%,100%{ transform:translateY(0px); } 50%{ transform:translateY(-25px); } }
 
-  const maxRows = 1000;
-  q.getRange(2, 1, maxRows, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(LEVELS, true).setAllowInvalid(false).build());
-  q.getRange(2, 2, maxRows, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(DIFFICULTIES, true).setAllowInvalid(false).build());
-  q.getRange(2, 5, maxRows, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(['Y', 'N'], true).setAllowInvalid(false).build());
-  q.setColumnWidth(3, 480);
-  q.setColumnWidth(4, 160);
-  q.getRange(2, 3, maxRows, 1).setWrap(true);
-  q.getRange(1, 3).setNote('ประโยคที่ให้เด็กอ่าน (พิมพ์ติดกันได้ ระบบตัดคำเอง / ถ้าอยากควบคุมการแสดงทีละวลี ให้เว้นวรรคระหว่างวลี)\nเลี่ยงเครื่องหมายๆ และตัวเลข เพราะ AI ถอดเสียงได้ไม่แน่นอน');
-  q.getRange(1, 4).setNote('หมวดทักษะ เช่น แม่ ก กา / คำควบกล้ำ / ประโยคยาว (แสดงใต้ประโยคในโหมดฝึกอ่าน)');
-  q.getRange(1, 5).setNote('Y = ใช้ในการสุ่ม, N = ซ่อนข้อนี้ชั่วคราว');
+.container { max-width:1150px; margin:auto; position:relative; z-index:1; }
+.glass { background:rgba(255,255,255,0.05); border:1px solid var(--line); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); box-shadow: 0 15px 40px rgba(0,0,0,0.35), 0 0 20px rgba(53,216,255,0.05); }
 
-  if (q.getLastRow() < 2) addSampleSentences();
+/* HEADER */
+.header { padding:25px; border-radius:25px; margin-bottom:22px; position:relative; overflow:hidden; }
+.header::before { content:""; position:absolute; inset:0; background: linear-gradient(90deg, transparent, rgba(53,216,255,0.07), transparent); transform:translateX(-100%); animation:scan 7s linear infinite; }
+@keyframes scan { 100%{ transform:translateX(100%); } }
+.top-header { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+.logo-area { display:flex; align-items:center; gap:18px; }
+.logo { width:65px; height:65px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-family:'Prompt',sans-serif; font-size:34px; font-weight:700; background: linear-gradient(135deg, var(--cyan), #d8f9ff, var(--violet)); color:#07101f; box-shadow: 0 0 30px rgba(53,216,255,0.35); }
+h1 { margin:0; font-size:38px; font-family:'Prompt',sans-serif; font-weight:700; letter-spacing:0; line-height:1.3; }
+.subtitle { margin-top:8px; font-size:18px; color:var(--muted); line-height:1.6; }
 
-  const rk = ss.getSheetByName(SHEET_RANK);
-  rk.getRange(2, 7, maxRows, 1).setNumberFormat('yyyy-mm-dd hh:mm');
-  ss.getSheetByName(SHEET_LOG).getRange(2, 1, 5000, 1).setNumberFormat('yyyy-mm-dd hh:mm:ss');
-  SpreadsheetApp.getUi().alert('ตั้งค่าชีตเรียบร้อย ✅\nแท็บ: ' + [SHEET_QUESTIONS, SHEET_RANK, SHEET_LOG].join(', '));
+.status-area { display:flex; align-items:center; gap:15px; }
+.live { padding:10px 18px; border-radius:999px; background:rgba(29,255,149,0.08); border:1px solid rgba(29,255,149,0.25); color:#87ffca; font-weight:bold; letter-spacing:2px; font-size:14px; display:flex; align-items:center; gap:10px; transition:0.3s; }
+.live::before { content:""; width:10px; height:10px; border-radius:50%; background:currentColor; box-shadow:0 0 15px currentColor; }
+
+/* INPUT & STATS */
+.login-box { margin-bottom:12px; }
+.login-box input { width:100%; padding:16px; border-radius:18px; border:1px solid rgba(255,255,255,0.12); background:rgba(7,12,30,0.75); color:white; font-size:18px; outline:none; transition:0.3s; }
+.login-box input:focus { border-color: var(--cyan); box-shadow: 0 0 15px rgba(53,216,255,0.3); }
+.login-box input.name-required { border-color: var(--red); box-shadow: 0 0 18px rgba(255,77,109,0.5); animation: nameShake 0.4s; }
+.login-box input:read-only { opacity: 0.65; }
+.name-hint { margin-top: 6px; padding-left: 8px; font-size: 13px; color: var(--muted); }
+.name-hint.warn { color: var(--red); font-weight: bold; }
+@keyframes nameShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+/* LEVEL SELECTOR */
+.level-box { margin-bottom:12px; padding: 16px; border-radius: 18px; display: flex; flex-direction: column; gap: 8px;}
+.level-box select { width:100%; padding:16px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:rgba(7,12,30,0.75); color:white; font-size:16px; outline:none; cursor:pointer; font-family:'Prompt',sans-serif; transition:0.3s; }
+.level-box select:focus { border-color: var(--cyan); }
+.level-pending { display: none; flex-direction: column; gap: 8px; margin-top: 4px; }
+.level-pending.show { display: flex; animation: levelPop .25s ease; }
+.level-pending-note { font-size: 13px; color: var(--gold); text-align: left; line-height: 1.5; }
+.level-confirm-btn { width: 100%; padding: 14px; border: none; border-radius: 14px; cursor: pointer; font-family: 'Prompt', sans-serif; font-size: 17px; font-weight: 700; color: #07101f; background: linear-gradient(135deg, #1dff95, #35d8ff); box-shadow: 0 5px 22px rgba(29,255,149,0.35); transition: 0.3s; }
+.level-confirm-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(29,255,149,0.55); }
+@keyframes levelPop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.level-box select option { background: #07101f; color: white; }
+
+/* ✨ USER MODE SELECTOR */
+.mode-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 8px;
+    border-radius: 20px;
+    margin-bottom: 15px;
+}
+.mode-btn {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 14px 15px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-family: 'Prompt', sans-serif;
+}
+.mode-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
+.mode-btn.active {
+    background: linear-gradient(135deg, var(--cyan), #d8f9ff, var(--violet));
+    color: #07101f;
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 0 25px rgba(53, 216, 255, 0.3);
+    font-weight: 700;
 }
 
-// เพิ่มประโยคตัวอย่าง ป.1-ป.2 (ข้ามประโยคที่มีอยู่แล้ว กดซ้ำได้ไม่ซ้ำแถว)
-function addSampleSentences() {
-  const ss = getSS_();
-  const q = ensureSheet_(ss, SHEET_QUESTIONS, Q_HEADERS);
-  const existing = {};
-  if (q.getLastRow() >= 2) {
-    q.getRange(2, 3, q.getLastRow() - 1, 1).getValues().forEach(function (r) {
-      existing[String(r[0]).replace(/\s+/g, '')] = true;
+/* BUTTONS GROUP (RANK & REWARD) */
+.action-btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+.btn-main-action {
+    color: #07101f;
+    font-weight: 700;
+    font-size: 18px;
+    padding: 16px;
+    border-radius: 18px;
+    width: 100%;
+    border: none;
+    cursor: pointer;
+    font-family: 'Prompt', sans-serif;
+    transition: 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+.btn-main-action:hover {
+    transform: translateY(-2px);
+}
+.btn-rank {
+    background: linear-gradient(135deg, #ffb347, #ffcc33);
+    box-shadow: 0 5px 25px rgba(255, 179, 71, 0.4);
+}
+.btn-rank:hover { box-shadow: 0 8px 30px rgba(255, 179, 71, 0.6); }
+.btn-reward {
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    color: white;
+    box-shadow: 0 5px 25px rgba(53, 216, 255, 0.4);
+}
+.btn-reward:hover { box-shadow: 0 8px 30px rgba(53, 216, 255, 0.6); }
+.btn-guide {
+    background: linear-gradient(135deg, #1dff95, #35d8ff);
+    box-shadow: 0 5px 25px rgba(29, 255, 149, 0.35);
+    margin-bottom: 15px;
+}
+.btn-guide:hover { box-shadow: 0 8px 30px rgba(29, 255, 149, 0.55); }
+
+/* GUIDE MODAL SPECIFIC */
+.guide-scroll { overflow: auto; max-height: 68vh; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); -webkit-overflow-scrolling: touch; }
+.guide-scroll img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.guide-scroll img.zoomed { width: 220%; max-width: none; cursor: zoom-out; }
+.guide-empty { text-align: center; color: var(--muted); padding: 40px 15px; font-size: 16px; line-height: 1.7; }
+.guide-hint { text-align: center; color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+.top-bar { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; margin-bottom:20px; }
+.stat { padding:15px; border-radius:20px; position:relative; overflow:hidden; text-align:center; }
+.stat::after { content:""; position:absolute; bottom:0; left:0; width:100%; height:4px; background: linear-gradient(90deg, var(--cyan), var(--violet), var(--blue)); }
+.stat-title { font-size:14px; color:var(--muted); letter-spacing: 1px;}
+.stat-value { margin-top:8px; font-size:28px; font-weight:bold; font-family:'Orbitron',sans-serif; }
+
+/* MAIN GRID */
+.main-grid { display:grid; grid-template-columns:1.3fr 0.8fr; gap:20px; }
+.sentence-box { padding:30px; border-radius:25px; position:relative; overflow:hidden; text-align:center; }
+.question-number { display:inline-block; padding:8px 16px; border-radius:999px; background:rgba(255,255,255,0.06); font-size:14px; letter-spacing:2px; color:#c6d6f4; }
+.english-text { margin-top:20px; font-size:44px; font-weight:700; line-height:1.7; font-family:'Prompt',sans-serif; text-shadow: 0 0 20px rgba(53,216,255,0.15); min-height: 115px; word-break: keep-all; overflow-wrap: anywhere;}
+.english-text span.w { display:inline-block; margin:0 0.12em; }
+.thai-text { margin-top:12px; font-size:22px; color:#b6c6e8; line-height:1.6; }
+
+/* COUNTDOWN */
+.countdown-wrapper { margin:30px auto 10px; width:160px; height:160px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; background: conic-gradient(var(--cyan), var(--violet), var(--blue), var(--cyan)); animation:pulse 2s infinite; box-shadow: 0 0 35px rgba(53,216,255,0.2); }
+.countdown-wrapper::before { content:""; position:absolute; width:130px; height:130px; border-radius:50%; background:#07101f; border:1px solid rgba(255,255,255,0.1);}
+.countdown { position:relative; font-size:32px; font-family:'Orbitron',sans-serif; font-weight:900; z-index:1; text-shadow: 0 0 18px rgba(53,216,255,0.3); letter-spacing: -1px; }
+@keyframes pulse { 50%{ transform:scale(1.04); } }
+
+/* BUTTONS & RESULT */
+.controls { margin-top:20px; text-align:center; }
+button { border:none; padding:16px 30px; border-radius:16px; cursor:pointer; font-size:18px; font-weight:bold; transition:0.3s; font-family:'Prompt',sans-serif; }
+button:disabled { filter: grayscale(100%); cursor: not-allowed; opacity: 0.5; }
+.start-btn { background: linear-gradient(135deg, var(--cyan), #d8f9ff, var(--violet)); color:#07101f; box-shadow: 0 10px 35px rgba(53,216,255,0.2); width: 100%; max-width: 300px;}
+.start-btn:hover:not(:disabled) { transform:translateY(-3px) scale(1.02); box-shadow: 0 15px 45px rgba(53,216,255,0.3); }
+
+/* 🚨 BLINKING RED RECONNECT BUTTON */
+@keyframes blinkRed {
+    0%, 100% { background: var(--red); box-shadow: 0 0 20px rgba(255, 77, 109, 0.85); transform: scale(1); }
+    50% { background: #ff1a40; box-shadow: 0 0 35px rgba(255, 77, 109, 1); transform: scale(1.04); }
+}
+.reconnect-btn {
+    display: none; background: var(--red); color: white; box-shadow: 0 0 25px rgba(255, 77, 109, 0.6);
+    width: 100%; max-width: 300px; animation: blinkRed 1.1s infinite ease-in-out; border: 2px solid rgba(255, 255, 255, 0.4);
+}
+.reconnect-btn:hover { filter: brightness(1.15); }
+
+.result-box { padding:30px; border-radius:25px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; }
+.score { font-size:75px; font-weight:900; font-family:'Orbitron',sans-serif; background: linear-gradient(135deg, var(--cyan), white, var(--violet)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-shadow: 0 0 25px rgba(53,216,255,0.2); }
+.status { margin-top:5px; font-size:28px; font-weight:bold; }
+.pass { color:var(--green); text-shadow: 0 0 18px rgba(29,255,149,0.25); }
+.fail { color:var(--red); text-shadow: 0 0 18px rgba(255,77,109,0.25); }
+.heard-text { margin-top:15px; width:100%; padding:14px; border-radius:16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); color:#c0d0ed; font-size:16px; min-height:60px; display:flex; align-items:center; justify-content:center; }
+
+.teacher-box { margin-top:20px; padding:15px; border-radius:20px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); line-height:1.7; font-size:16px; text-align:center; }
+.teacher-title { font-weight:bold; color:#90dfff; margin-bottom:5px; font-size:18px; }
+
+/* 🔒 HIDDEN ADMIN TRIGGER FOOTER */
+.footer { margin-top:20px; text-align:center; color:#92a4c9; font-size:14px; letter-spacing:2px; padding: 15px; cursor: pointer; user-select: none; transition: 0.3s; border-radius: 12px; }
+.footer:hover { color: var(--cyan); background: rgba(255,255,255,0.02); }
+
+/* 🛠️ MAINTENANCE OVERLAY */
+.maintenance-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(4, 8, 22, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+    z-index: 9000; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: var(--text); padding: 20px;
+}
+.maintenance-overlay h1 { color: var(--red); font-size: 40px; margin-bottom: 20px; font-family: 'Prompt', sans-serif; text-shadow: 0 0 25px rgba(255, 77, 109, 0.5); }
+.maintenance-info { font-size: 22px; color: var(--cyan); margin-bottom: 20px; background: rgba(53,216,255,0.1); padding: 15px 30px; border-radius: 20px; border: 1px solid rgba(53,216,255,0.2); }
+.maintenance-msg { background: rgba(255,255,255,0.05); border: 1px solid var(--line); padding: 20px; border-radius: 20px; max-width: 600px; font-size: 18px; line-height: 1.8; color: #b6c6e8; }
+.maintenance-admin-btn { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 20px; transition: 0.3s; z-index: 10000; }
+.maintenance-admin-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* MODAL OVERLAY GENERAL */
+.modal-overlay { 
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 99999; 
+    align-items: center; justify-content: center; backdrop-filter: blur(8px); 
+}
+.modal-content { width: 90%; max-width: 480px; padding: 25px; border-radius: 25px; position: relative; max-height: 85vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.close-modal { position: absolute; top: 15px; right: 20px; font-size: 24px; color: var(--muted); cursor: pointer; background: none; border: none; padding: 0; }
+.close-modal:hover { color: white; }
+
+/* REWARD MODAL SPECIFIC */
+.reward-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; padding: 15px; text-align: center; width: 100%; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+.reward-card img { width: 100%; height: 160px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; background: rgba(255,255,255,0.05); }
+.reward-title { font-size: 18px; font-weight: bold; color: var(--cyan); margin-bottom: 5px; }
+.reward-stock { font-size: 14px; color: var(--muted); }
+.reward-stock span { font-weight: bold; color: var(--green); font-size: 16px; }
+.reward-container { display: flex; gap: 15px; justify-content: center; margin-top: 15px; }
+@media(max-width:400px) { .reward-container { flex-direction: column; } }
+
+/* RANK MODAL SPECIFIC */
+.rank-modal-content { background: #0d1326; border: 1px solid rgba(255, 255, 255, 0.1); width: 95%; max-width: 500px; padding: 30px 20px; }
+.rank-header-text { text-align: center; color: #92a4c9; font-size: 16px; margin-bottom: 20px; }
+.rank-table-body { background: rgba(255,255,255,0.02); border-radius: 0 0 12px 12px; overflow-y: auto; max-height: 50vh; }
+.loading-rank { text-align: center; padding: 30px; color: var(--cyan); }
+.rank-table-header { display: grid; grid-template-columns: 0.8fr 1.5fr 1fr 1fr; background: rgba(255,255,255,0.05); padding: 18px 10px; border-radius: 12px 12px 0 0; text-align: center; font-weight: 700; color: var(--gold); font-size: 16px; }
+.rank-row { display: grid; grid-template-columns: 0.8fr 1.5fr 1fr 1fr; padding: 16px 10px; align-items: center; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.05); color: white; font-size: 18px; }
+.rank-row:last-child { border-bottom: none; }
+.rank-badge { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; background: rgba(255,255,255,0.1); font-weight: 900; color: white; font-family: 'Orbitron', sans-serif; font-size: 18px; }
+.rank-1 .rank-badge { background: var(--gold); color: #000; box-shadow: 0 0 25px rgba(255, 204, 0, 0.6); }
+.rank-2 .rank-badge { background: var(--silver); color: #000; box-shadow: 0 0 15px rgba(160, 165, 177, 0.4); }
+.rank-3 .rank-badge { background: var(--bronze); color: #000; box-shadow: 0 0 15px rgba(205, 127, 50, 0.4); }
+.rank-score { color: var(--cyan); font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 22px; }
+
+/* ADMIN MODAL */
+.modal-title { font-size: 22px; font-weight: bold; margin-bottom: 20px; color: var(--cyan); text-align: center; }
+.admin-login-group { display: block; text-align: center; }
+.admin-control-group { display: none; }
+.admin-input { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white; font-size: 16px; margin-bottom: 15px; text-align: center; font-family:'Prompt',sans-serif; }
+.admin-btn-action { width: 100%; background: var(--blue); color: white; padding: 12px; border-radius: 12px; border: none; font-family:'Prompt',sans-serif; font-size: 16px; cursor: pointer; font-weight: bold; transition: 0.3s;}
+.admin-btn-action:hover { filter: brightness(1.1); }
+
+.switch-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(255,255,255,0.05); padding: 12px 15px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); }
+.switch-label { font-size: 15px; font-weight: 500; }
+.switch { position: relative; display: inline-block; width: 45px; height: 24px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.2); transition: .4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--cyan); box-shadow: 0 0 10px rgba(53,216,255,0.5); }
+input:checked + .slider:before { transform: translateX(21px); }
+
+.stock-control-container { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 12px; }
+.stock-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.stock-item:last-child { margin-bottom: 0; }
+.stock-label { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.stock-display-badge { background: rgba(53,216,255,0.2); color: var(--cyan); padding: 4px 12px; border-radius: 8px; font-weight: bold; min-width: 40px; display: inline-block; text-align: center; font-size: 14px;}
+.stock-btns { display: flex; gap: 8px; align-items: center; }
+.stock-btn { width: 30px; height: 30px; padding: 0; border-radius: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; font-size: 18px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; }
+.stock-btn:hover { background: var(--blue); border-color: var(--blue); }
+.stock-btn.minus { color: var(--red); }
+.stock-btn.minus:hover { background: var(--red); color: white; border-color: var(--red); }
+.stock-btn.plus { color: var(--green); }
+.stock-btn.plus:hover { background: var(--green); color: white; border-color: var(--green); }
+
+.admin-time-input { width: 50px; text-align: center; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white; padding: 5px; font-size: 14px; outline: none; }
+.admin-select { background: rgba(0,0,0,0.5); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px; border-radius: 8px; font-size: 14px; outline: none; width: 100%; max-width: 140px;}
+.admin-select option { background: #07101f; }
+
+/* AUDIO CONTROLS */
+.audio-controls { margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
+.audio-btn { width: auto; padding: 8px 16px; font-size: 14px; border-radius: 12px; background: rgba(53,216,255,0.15); border: 1px solid rgba(53,216,255,0.3); color: var(--cyan); display: flex; align-items: center; gap: 8px; transition: 0.3s; }
+.audio-btn:hover { background: rgba(53,216,255,0.3); transform: scale(1.05); }
+
+.audio-btn.skip { background: rgba(181, 108, 255, 0.15); border-color: rgba(181, 108, 255, 0.3); color: var(--violet); }
+.audio-btn.skip:hover { background: rgba(181, 108, 255, 0.3); transform: scale(1.05); }
+
+/* RESPONSIVE CLEANUP */
+@media(max-width:900px) { 
+    .main-grid { grid-template-columns:1fr; } 
+    h1 { font-size:32px; } 
+    .english-text { font-size:36px; } 
+}
+@media(max-width:600px) {
+    body { padding:10px; } 
+    .header { padding:15px; margin-bottom:15px; border-radius:20px; } 
+    .top-header { gap:10px; flex-direction: column; text-align: center; } 
+    .logo-area { gap:10px; flex-direction: column; } 
+    .logo { width:55px; height:55px; font-size:20px; border-radius:15px; } 
+    h1 { font-size:24px; line-height: 1.3; } 
+    .subtitle { font-size:14px; margin-top:5px; } 
+    .status-area { width: 100%; justify-content: center; }
+    .live { padding:8px 16px; font-size:12px; width: 100%; justify-content: center;} 
+    
+    .login-box { margin-bottom:10px; } 
+    .login-box input { padding:14px; font-size:16px; border-radius:15px; }
+    
+    .mode-selector { grid-template-columns: 1fr; gap: 8px; }
+    .mode-btn { padding: 12px; font-size: 14px; }
+
+    .action-btn-group { grid-template-columns: 1fr; gap: 10px; margin-bottom: 15px; }
+    .btn-main-action { padding: 14px; font-size: 16px; border-radius: 15px; }
+
+    .top-bar { gap:10px; margin-bottom:15px; } 
+    .stat { padding:12px 8px; border-radius:15px; } 
+    .stat-title { font-size:10px; } 
+    .stat-value { margin-top:5px; font-size:20px; }
+    
+    .sentence-box { padding:20px 15px; border-radius:20px; } 
+    .question-number { font-size:12px; padding:6px 12px; } 
+    .english-text { font-size:32px; margin-top:15px; line-height:1.7; } 
+    .thai-text { font-size:16px; margin-top:8px; }
+    
+    .countdown-wrapper { margin:20px auto 10px; width:120px; height:120px; } 
+    .countdown-wrapper::before { width:95px; height:95px; } 
+    .countdown { font-size:22px; }
+    
+    .controls { margin-top:15px; } 
+    button { width:100%; padding:14px; font-size:16px; border-radius:14px; max-width: 100%;}
+    
+    .result-box { padding:20px 15px; border-radius:20px; margin-top:15px; } 
+    .score { font-size:55px; } 
+    .status { font-size:22px; margin-top:5px; } 
+    .heard-text { font-size:14px; padding:12px; margin-top:12px; min-height:auto; }
+    
+    .teacher-box { font-size: 14px; padding: 12px; }
+    .teacher-title { font-size: 16px; }
+
+    .rank-table-header { font-size: 12px; grid-template-columns: 0.8fr 1.2fr 1fr 1.2fr; }
+    .rank-row { font-size: 14px; grid-template-columns: 0.8fr 1.2fr 1fr 1.2fr; padding: 10px 5px; }
+    .rank-badge { width: 30px; height: 30px; }
+}
+</style>
+</head>
+
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+<div class="orb orb3"></div>
+
+<!-- 🚨 ANTI-CHEAT MODAL OVERLAY -->
+<div class="modal-overlay" id="cheatModal" style="z-index: 999999;">
+    <div class="modal-content" style="background:#1a0505; border: 2px solid var(--red); text-align:center;">
+        <h2 style="color:var(--red); font-family:'Prompt',sans-serif; margin-top: 0;">🚨 ตรวจพบพฤติกรรมส่อทุจริต 🚨</h2>
+        <div style="color:#ffb3b3; font-size:16px; margin-bottom:20px; line-height: 1.6;">
+            ระบบตรวจพบพฤติกรรมส่อทุจริต!<br>
+            ห้ามกระทำการดังต่อไปนี้ระหว่างทดสอบ:<br>
+            <strong style="color:white;">1. แคปหน้าจอ (Screen Capture)</strong><br>
+            <strong style="color:white;">2. คัดลอกข้อความ (Copy Text)</strong><br>
+            <strong style="color:white;">3. สลับหน้าจอ/แอปพลิเคชัน (Switch Tabs)</strong><br>
+            <br>
+            <span style="font-size: 14px; color: var(--muted);">ระบบได้ทำการบันทึกว่าไม่ผ่าน และข้ามข้อนี้แล้ว</span>
+        </div>
+        <button class="start-btn" style="background: var(--red); color: white; width: 100%; box-shadow: 0 0 20px rgba(255, 77, 109, 0.4);" onclick="closeCheatModal()">รับทราบและทำข้อต่อไป</button>
+    </div>
+</div>
+
+<!-- 🛠️ หน้าจอแจ้งเตือนปรับปรุงระบบ -->
+<div class="maintenance-overlay" id="maintenanceOverlay">
+    <div class="maintenance-admin-btn" onclick="openAdminModal()" title="Admin Panel">⚙️</div>
+    <h1>🛠️ SYSTEM MAINTENANCE</h1>
+    <div class="maintenance-info">
+        เปิดให้บริการอีกครั้ง: <span id="maintDateUI" style="color:white; font-weight:bold;">-</span> เวลา <span id="maintTimeUI" style="color:white; font-weight:bold;">-</span> น.
+    </div>
+    <div class="maintenance-msg" id="maintMsgUI">กำลังดำเนินการปรับปรุงระบบ ขออภัยในความไม่สะดวกครับ</div>
+</div>
+
+<div class="container">
+    <div class="header glass">
+        <div class="top-header">
+            <div class="logo-area">
+                <div class="logo">ก</div>
+                <div>
+                    <h1>สถานีประเมินการอ่านภาษาไทย</h1>
+                    <div class="subtitle">ระบบประเมินการอ่านออกเสียงภาษาไทยอัตโนมัติด้วย AI สำหรับนักเรียนระดับประถมศึกษา</div>
+                </div>
+            </div>
+            <div class="status-area">
+                <div class="live" id="machineStatusUI">SYSTEM STARTING</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="login-box">
+        <input type="text" id="studentName" placeholder="กรอกชื่อผู้เข้ารับการประเมิน (จำเป็น)" maxlength="40" autocomplete="name" oninput="onNameInput()" />
+        <div class="name-hint" id="nameHint">* โหมดประเมินรับรางวัลต้องกรอกชื่อก่อนเริ่ม เพื่อบันทึกคะแนนลงตารางอันดับ</div>
+    </div>
+
+    <!-- 📚 LEVEL SELECTOR -->
+    <div class="level-box glass" id="userLevelContainer">
+        <div style="font-size: 14px; color: var(--muted); margin-bottom: 8px; font-weight: bold;">📚 เลือกระดับชั้นที่ต้องการประเมินการอ่าน</div>
+        <select id="userLevel" onchange="onLevelChange()">
+            <option value="P1" selected>ประถมศึกษาปีที่ 1 (ป.1)</option>
+            <option value="P2">ประถมศึกษาปีที่ 2 (ป.2)</option>
+        </select>
+        <div class="level-pending" id="levelPending">
+            <div class="level-pending-note" id="levelPendingNote">⚠️ ยังไม่ได้ยืนยัน</div>
+            <button class="level-confirm-btn" id="levelConfirmBtn" onclick="confirmLevelChange()">✅ ยืนยันการเลือกระดับ</button>
+        </div>
+    </div>
+
+    <!-- 📖 ปุ่มวิธีการใช้งานระบบ (ภาพจัดการโดย Admin) -->
+    <button class="btn-main-action btn-guide" onclick="openGuideModal()">
+        📖 วิธีการใช้งานระบบ
+    </button>
+
+    <!-- ✨ USER MODE SELECTOR -->
+    <div class="mode-selector glass">
+        <button class="mode-btn active" id="modeRewardBtn" onclick="selectUserMode('reward')">
+            🎁 โหมดประเมินรับรางวัล
+        </button>
+        <button class="mode-btn" id="modePracticeBtn" onclick="selectUserMode('practice')">
+            💡 โหมดฝึกอ่าน (ไม่จำกัดเกณฑ์)
+        </button>
+    </div>
+
+    <!-- 🏆 กลุ่มปุ่ม RANK และ REWARD -->
+    <div class="action-btn-group">
+        <button class="btn-main-action btn-rank" onclick="openRankModal()">
+            🏆 ตารางอันดับ (Rank)
+        </button>
+        <button class="btn-main-action btn-reward" onclick="openRewardModal()">
+            🎁 ดูของรางวัล (Rewards)
+        </button>
+    </div>
+
+    <div class="top-bar">
+        <div class="stat glass">
+            <div class="stat-title">คะแนนรวม</div>
+            <div class="stat-value"><span id="totalScore">0</span></div>
+        </div>
+        <div class="stat glass">
+            <div class="stat-title">ผ่าน</div>
+            <div class="stat-value"><span id="passCount">0</span></div>
+        </div>
+        <div class="stat glass">
+            <div class="stat-title">ไม่ผ่าน</div>
+            <div class="stat-value"><span id="failCount">0</span></div>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <div class="sentence-box glass">
+            <div class="question-number" id="questionNumber">ระบบกำลังเชื่อมต่อ...</div>
+            <div class="english-text" id="englishText">กำลังโหลด...</div>
+            
+            <div class="audio-controls" id="audioControls" style="display: none;">
+                <button class="audio-btn" id="listenBtn" onclick="playSentenceAudio()" title="ฟังครูอ่านนำ">🔊 ฟังเสียงอ่าน / เล่นซ้ำ</button>
+                <button class="audio-btn skip" id="skipBtn" onclick="nextQuestion()" title="ข้ามไปข้อต่อไป">⏭️ ข้อต่อไป</button>
+            </div>
+            
+            <div class="thai-text" id="thaiText">กำลังเตรียมประโยคสำหรับอ่าน</div>
+            <div class="countdown-wrapper">
+                <div class="countdown" id="countdown">00:00</div>
+            </div>
+            <div class="controls">
+                <button class="start-btn" id="startBtn" onclick="startRecognition()" disabled>⏳ กรุณารอสักครู่</button>
+                <button class="reconnect-btn" id="reconnectBtn" onclick="retryConnection()">🔄 เชื่อมต่อใหม่</button>
+            </div>
+        </div>
+
+        <div class="result-box glass">
+            <div class="score" id="score">0%</div>
+            <div class="status" id="status">รอเริ่มทดสอบ</div>
+            <div class="heard-text" id="heardText">AI พร้อมฟังเสียงอ่าน...</div>
+        </div>
+    </div>
+
+    <div class="teacher-box glass">
+        <div class="teacher-title">ผู้พัฒนาโครงการ</div>
+        นางสาวฐรินดา  เหล่าเลิศและคณะ<br>
+        แผนกอิเล็กทรอนิกส์<br>
+        วิทยาลัยสารพัดช่างศรีสะเกษ
+    </div>
+
+    <!-- 🔒 HIDDEN ADMIN TRIGGER (Double Click หรือคลิก 3 ครั้งสำหรับมือถือ) -->
+    <div class="footer" id="footerAdminTrigger" ondblclick="openAdminModal()" title="Double click for Admin Panel">Thai Reading Assessment Station © 2026</div>
+</div>
+
+<!-- 🛠️ Admin Guide Modal Panel -->
+<div class="modal-overlay" id="adminGuideModal" style="z-index: 100001;">
+    <div class="modal-content" style="background:#0d1326; padding-top:40px; max-width:560px;">
+        <button class="close-modal" onclick="closeAdminGuideModal()">✕</button>
+        <h2 style="text-align:center; color:var(--gold); margin-top:0;">🛠️ วิธีดูแลระบบสำหรับ Admin</h2>
+        <div class="guide-scroll">
+            <div class="guide-empty" id="adminGuideEmpty">ยังไม่มีภาพวิธีดูแลระบบ<br>อัปโหลดได้ที่ Admin Panel</div>
+            <img id="adminGuideImg" src="" alt="วิธีดูแลระบบสำหรับ Admin" style="display:none;" onclick="this.classList.toggle('zoomed')">
+        </div>
+        <div class="guide-hint" id="adminGuideHint" style="display:none;">👆 แตะที่ภาพเพื่อขยาย / แตะอีกครั้งเพื่อย่อ</div>
+    </div>
+</div>
+
+<!-- 📖 Guide Modal Panel -->
+<div class="modal-overlay" id="guideModal">
+    <div class="modal-content" style="background:#0d1326; padding-top:40px; max-width:560px;">
+        <button class="close-modal" onclick="closeGuideModal()">✕</button>
+        <h2 style="text-align:center; color:var(--green); margin-top:0;">📖 วิธีการใช้งานระบบ</h2>
+        <div class="guide-scroll" id="guideScroll">
+            <div class="guide-empty" id="guideEmpty">ยังไม่มีภาพวิธีการใช้งาน<br>โปรดติดต่อผู้ดูแลระบบ</div>
+            <img id="guideImg" src="" alt="วิธีการใช้งานระบบ" style="display:none;" onclick="toggleGuideZoom()">
+        </div>
+        <div class="guide-hint" id="guideHint" style="display:none;">👆 แตะที่ภาพเพื่อขยาย / แตะอีกครั้งเพื่อย่อ</div>
+    </div>
+</div>
+
+<!-- 🎁 Reward Modal Panel -->
+<div class="modal-overlay" id="rewardModal">
+    <div class="modal-content" style="background:#0d1326; padding-top:40px;">
+        <button class="close-modal" onclick="closeRewardModal()">✕</button>
+        <h2 style="text-align:center; color:var(--cyan); margin-top:0;">🎁 รางวัลในตู้</h2>
+        <div style="text-align:center; color:var(--muted); font-size:14px; margin-bottom:10px;">สะสมคะแนนครบตามเกณฑ์ รับรางวัลฟรี!</div>
+        <div class="reward-container">
+            <div class="reward-card">
+                <div class="reward-title">Slot A (1)</div>
+                <img id="rewardImg1" src="https://via.placeholder.com/300x200?text=No+Image" alt="Slot 1 Reward">
+                <div class="reward-stock">คงเหลือ: <span id="rewardStock1UI">0</span> ชิ้น</div>
+            </div>
+            <div class="reward-card">
+                <div class="reward-title">Slot B (2)</div>
+                <img id="rewardImg2" src="https://via.placeholder.com/300x200?text=No+Image" alt="Slot 2 Reward">
+                <div class="reward-stock">คงเหลือ: <span id="rewardStock2UI">0</span> ชิ้น</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 🏆 Rank Modal Panel -->
+<div class="modal-overlay" id="rankModal">
+    <div class="modal-content rank-modal-content">
+        <button class="close-modal" onclick="closeRankModal()">✕</button>
+        <div class="rank-header-text">ยิ่งขยันทำแบบทดสอบบ่อย ยิ่งสะสม<br>คะแนนรวมได้เยอะ!</div>
+        
+        <div class="rank-table-header">
+            <div>อันดับ</div>
+            <div>ชื่อผู้เข้าประเมิน</div>
+            <div>รอบสอบ</div>
+            <div>คะแนนรวม<br>สะสม</div>
+        </div>
+        
+        <div class="rank-table-body" id="rankTableBody">
+            <div class="loading-rank">กำลังโหลดข้อมูลอันดับ...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Admin Modal Panel -->
+<div class="modal-overlay" id="adminModal">
+    <div class="modal-content">
+        <button class="close-modal" onclick="closeAdminModal()">✕</button>
+        <div class="modal-title">⚙️ Admin Panel</div>
+
+        <div id="adminLoginGroup" class="admin-login-group">
+            <input type="password" id="adminPassword" class="admin-input" placeholder="Enter Password">
+            <button class="admin-btn-action" onclick="verifyAdmin()">Login</button>
+            <p id="adminError" style="color:var(--red); font-size:14px; display:none; margin-top:10px;">รหัสผ่านไม่ถูกต้อง!</p>
+        </div>
+
+        <div id="adminControlGroup" class="admin-control-group">
+
+            <!-- 🛠️ ปุ่มดูวิธีดูแลระบบสำหรับ Admin -->
+            <button class="admin-btn-action" style="background: linear-gradient(135deg, #ffb347, #ffcc33); color:#07101f; margin-bottom:15px;" onclick="openAdminGuideModal()">🛠️ วิธีดูแลระบบสำหรับ Admin</button>
+
+            <!-- 🛠️ ระบบแจ้งเตือน Maintenance -->
+            <div class="stock-control-container" style="border-color: rgba(255, 77, 109, 0.4);">
+                <div style="color: var(--red); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">🛠️ ประกาศปิดปรับปรุง (Maintenance)</div>
+                
+                <div class="switch-container" style="background:none; border:none; padding:0; margin-bottom: 15px;">
+                    <span class="switch-label">เปิดโหมดปรับปรุงระบบ</span>
+                    <label class="switch">
+                        <input type="checkbox" id="maintSwitch" onchange="toggleMaintenance(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <div style="font-size: 12px; color: var(--muted); margin-bottom: 5px; text-align: left;">วันที่เปิดอีกครั้ง</div>
+                        <input type="date" id="adminMaintDate" class="admin-input" style="margin-bottom: 0;">
+                    </div>
+                    <div style="flex: 1;">
+                        <div style="font-size: 12px; color: var(--muted); margin-bottom: 5px; text-align: left;">เวลาที่เปิดอีกครั้ง</div>
+                        <input type="time" id="adminMaintTime" class="admin-input" style="margin-bottom: 0;">
+                    </div>
+                </div>
+                
+                <div style="font-size: 12px; color: var(--muted); margin-bottom: 5px; text-align: left;">ข้อความประกาศเพิ่มเติม</div>
+                <textarea id="adminMaintMsg" class="admin-input" style="min-height:70px; resize:vertical; text-align:left;" placeholder="เช่น จะกลับมาให้บริการอีกครั้งเร็วๆ นี้..."></textarea>
+                
+                <button class="admin-btn-action" style="background:var(--red);" onclick="saveMaintenanceInfo()">บันทึกข้อมูล</button>
+            </div>
+            
+            <!-- ปุ่มจัดการสถานะระบบ -->
+            <div class="switch-container" style="flex-direction: column; align-items: stretch; padding: 15px;">
+                <span class="switch-label" style="text-align: center; margin-bottom: 12px; display: block;">🔄 สถานะตู้ (Machine State)</span>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button class="stock-btn plus" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(29,255,149,0.2); color: var(--green); border-color: var(--green);" onclick="setSystemStatus('ready')">Ready (พร้อมใช้งาน)</button>
+                    <button class="stock-btn plus" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(53,216,255,0.2); color: var(--cyan); border-color: var(--cyan);" onclick="setSystemStatus('unlocked')">Unlocked (ปลดล็อกตู้)</button>
+                    <button class="stock-btn minus" style="width: 100%; padding: 10px; font-size: 14px; background: rgba(255,77,109,0.2); color: var(--red); border-color: var(--red);" onclick="setSystemStatus('busy')">Busy (ล็อกระบบ)</button>
+                </div>
+            </div>
+
+            <!-- สต๊อกของรางวัล -->
+            <div class="stock-control-container">
+                <div style="color: var(--cyan); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">📦 จำนวนของรางวัลคงเหลือ</div>
+                <div class="stock-item">
+                    <div class="stock-label">Slot 1 (A) Stock</div>
+                    <div class="stock-btns">
+                        <button class="stock-btn minus" onclick="updateStock('slot1', -1)">-</button>
+                        <span class="stock-display-badge" id="slot1StockUI">0</span>
+                        <button class="stock-btn plus" onclick="updateStock('slot1', 1)">+</button>
+                    </div>
+                </div>
+                <div class="stock-item">
+                    <div class="stock-label">Slot 2 (B) Stock</div>
+                    <div class="stock-btns">
+                        <button class="stock-btn minus" onclick="updateStock('slot2', -1)">-</button>
+                        <span class="stock-display-badge" id="slot2StockUI">0</span>
+                        <button class="stock-btn plus" onclick="updateStock('slot2', 1)">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 🖼️ อัปโหลดรูปภาพของรางวัล -->
+            <div class="stock-control-container">
+                <div style="color: var(--cyan); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">🖼️ จัดการภาพของรางวัลในตู้ทึบ</div>
+                <div class="stock-item" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                    <div class="stock-label">อัปโหลดภาพ Slot 1 (A)</div>
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <input type="file" id="adminImgSlot1" accept="image/*" class="admin-input" style="padding: 8px; margin: 0; flex:1; font-size:12px;">
+                        <button class="admin-btn-action" style="width:auto; padding:8px 15px;" onclick="uploadImage('slot1')">Upload</button>
+                    </div>
+                </div>
+                <div class="stock-item" style="flex-direction: column; align-items: flex-start; gap: 10px; margin-top:15px;">
+                    <div class="stock-label">อัปโหลดภาพ Slot 2 (B)</div>
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <input type="file" id="adminImgSlot2" accept="image/*" class="admin-input" style="padding: 8px; margin: 0; flex:1; font-size:12px;">
+                        <button class="admin-btn-action" style="width:auto; padding:8px 15px;" onclick="uploadImage('slot2')">Upload</button>
+                    </div>
+                </div>
+                <div style="font-size:12px; color:var(--muted); margin-top:10px;">* ระบบจะย่อขนาดและบันทึกภาพลงฐานข้อมูลอัตโนมัติ</div>
+            </div>
+
+            <!-- 📖 อัปโหลดภาพวิธีใช้งานระบบ -->
+            <div class="stock-control-container">
+                <div style="color: var(--green); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">📖 จัดการภาพวิธีใช้งานระบบ</div>
+                <div class="stock-item" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                    <div class="stock-label">อัปโหลดภาพวิธีใช้งานระบบ (1 ภาพ)</div>
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <input type="file" id="adminImgGuide" accept="image/*" class="admin-input" style="padding: 8px; margin: 0; flex:1; font-size:12px;">
+                        <button class="admin-btn-action" style="width:auto; padding:8px 15px;" onclick="uploadGuideImage()">Upload</button>
+                    </div>
+                </div>
+                <div style="font-size:12px; color:var(--muted); margin-top:10px;">* ภาพใหม่จะแทนที่ภาพเดิม · ระบบย่อภาพให้กว้างไม่เกิน 1400px เพื่อให้ตัวหนังสืออ่านชัด</div>
+            </div>
+
+            <!-- 🛠️ อัปโหลดภาพวิธีดูแลระบบสำหรับ Admin -->
+            <div class="stock-control-container">
+                <div style="color: var(--gold); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">🛠️ จัดการภาพวิธีดูแลระบบ (Admin)</div>
+                <div class="stock-item" style="flex-direction: column; align-items: flex-start; gap: 10px;">
+                    <div class="stock-label">อัปโหลดภาพวิธีดูแลระบบ (1 ภาพ)</div>
+                    <div style="display:flex; gap:10px; width:100%;">
+                        <input type="file" id="adminImgAdminGuide" accept="image/*" class="admin-input" style="padding: 8px; margin: 0; flex:1; font-size:12px;">
+                        <button class="admin-btn-action" style="width:auto; padding:8px 15px;" onclick="uploadGuideImage('adminImgAdminGuide','machine/rewards/adminGuide','วิธีดูแลระบบ')">Upload</button>
+                    </div>
+                </div>
+                <div style="font-size:12px; color:var(--muted); margin-top:10px;">* ภาพนี้แสดงเฉพาะเมื่อ Admin กดปุ่ม "วิธีดูแลระบบสำหรับ Admin" (ผู้ใช้ทั่วไปไม่โหลดภาพนี้)</div>
+            </div>
+
+            <!-- ⚙️ การตั้งค่าระบบประเมิน -->
+            <div class="stock-control-container">
+                <div style="color: var(--cyan); font-weight: bold; margin-bottom: 15px; font-size: 16px; text-align: left;">⚙️ Game Settings</div>
+                
+                <!-- 🔒 ระบบตัดการเลือกระดับของ User โดย Admin -->
+                <div class="switch-container" style="background:none; border:none; padding:0; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px;">
+                    <span class="switch-label" style="color: var(--red);">🔒 ตัดการเลือกระดับของ User</span>
+                    <label class="switch">
+                        <input type="checkbox" id="adminForceLevelSwitch" onchange="toggleLevelControl(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="stock-item" id="adminLevelSelectContainer" style="display: none; margin-bottom: 15px; justify-content: space-between;">
+                    <div class="stock-label">เลือกระดับชั้นบังคับ:</div>
+                    <select id="adminForcedLevelSelect" onchange="setAdminForcedLevel()" class="admin-select" style="max-width: 150px;">
+                        <option value="P1">ป.1</option>
+                        <option value="P2">ป.2</option>
+                    </select>
+                </div>
+
+                <div class="stock-item">
+                    <div class="stock-label">📝 สุ่มประโยคจำนวน (ข้อ)</div>
+                    <div class="stock-btns">
+                        <button class="stock-btn minus" onclick="updateAdminConfig('questionCount', -1)">-</button>
+                        <span class="stock-display-badge" id="adminQuestionCountUI">10</span>
+                        <button class="stock-btn plus" onclick="updateAdminConfig('questionCount', 1)">+</button>
+                    </div>
+                </div>
+
+                <div class="stock-item">
+                    <div class="stock-label">🏆 อ่านผ่านขั้นต่ำ (ข้อ)</div>
+                    <div class="stock-btns">
+                        <button class="stock-btn minus" onclick="updateAdminConfig('passRequirement', -1)">-</button>
+                        <span class="stock-display-badge" id="adminPassReqUI">5</span>
+                        <button class="stock-btn plus" onclick="updateAdminConfig('passRequirement', 1)">+</button>
+                    </div>
+                </div>
+
+                <div class="stock-item">
+                    <div class="stock-label">⏱️ เวลาทดสอบรวม (นาที:วินาที)</div>
+                    <div class="stock-btns" style="gap: 5px;">
+                        <input type="number" id="adminTimeMin" min="0" max="60" value="1" class="admin-time-input"> :
+                        <input type="number" id="adminTimeSec" min="0" max="59" value="00" class="admin-time-input">
+                        <button class="stock-btn plus" onclick="updateTestTime()" style="width: auto; padding: 0 10px; font-size:12px;">บันทึก</button>
+                    </div>
+                </div>
+
+                <div class="stock-item">
+                    <div class="stock-label">🌟 ระดับความยาก</div>
+                    <select id="adminDifficulty" onchange="updateDifficulty()" class="admin-select">
+                        <option value="ALL">สุ่มทั้งหมด (MIXED)</option>
+                        <option value="LOW">ง่าย (LOW)</option>
+                        <option value="MEDIUM">ปานกลาง (MEDIUM)</option>
+                        <option value="HIGH">ยาก (HIGH)</option>
+                    </select>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- 🎯 Initial Level Selection Modal -->
+<div class="modal-overlay" id="initialLevelModal" style="display: none; z-index: 100000;">
+    <div class="modal-content" style="text-align: center; background: #0d1326; border: 1px solid var(--cyan);">
+        <h2 style="color: var(--cyan); margin-top: 0; font-family: 'Prompt', sans-serif;">เลือกระดับชั้น</h2>
+        <div style="color: var(--muted); font-size: 16px; margin-bottom: 15px;">
+            กรุณาเลือกระดับชั้นที่จะประเมิน<br>
+            <span style="font-size: 14px;">(ระบบจะเลือกอัตโนมัติใน <span id="initialTimer" style="color: var(--red); font-weight: bold; font-size: 18px;">10</span> วินาที)</span>
+        </div>
+        
+        <select id="popupLevelSelect" class="admin-input" style="font-size: 16px; margin-bottom: 20px; text-align: center; cursor: pointer;">
+            <option value="P1" selected>ประถมศึกษาปีที่ 1 (ป.1)</option>
+            <option value="P2">ประถมศึกษาปีที่ 2 (ป.2)</option>
+        </select>
+        
+        <button class="start-btn" onclick="confirmInitialLevel()" style="width: 100%;">✅ ยืนยันการเลือก</button>
+    </div>
+</div>
+
+<script>
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyoo5FbqReEwFxYecwWZANl65I2u45wUZ0oq5MRl162mscLZRK7CZ1p22nt3CQP86_W/exec";
+const ADMIN_PASSWORD = "1234"; 
+
+// ==========================================
+// 🇹🇭 ตั้งค่าสถานีประเมินการอ่านภาษาไทย
+// ==========================================
+const SPEECH_LANG = 'th-TH';          // ภาษาที่ให้ไมค์ฟัง
+const PASS_SCORE = 70;                // คะแนนขั้นต่ำต่อข้อ (%) เด็ก ป.1-2 + การถอดเสียงไทยมีคลาดเคลื่อนได้ จึงตั้งต่ำกว่าภาษาอังกฤษ (เดิม 80)
+const IGNORE_TONE_MARKS = true;       // true = ไม่นับความต่างของวรรณยุกต์ (่ ้ ๊ ๋) ตอนเทียบคำอ่าน เพราะ AI ถอดเสียงวรรณยุกต์พลาดบ่อย
+const DEFAULT_LEVEL = "P1";           // ระดับเริ่มต้น
+const GAS_QUESTION_URL = "https://script.google.com/macros/s/AKfycbyoo5FbqReEwFxYecwWZANl65I2u45wUZ0oq5MRl162mscLZRK7CZ1p22nt3CQP86_W/exec";
+
+// ==========================================
+// 🔊 ระบบเสียง (v21)
+// ==========================================
+const START_CUE_ENABLED = true;   // เสียงเตือน "ติ๊ง-ติ๊ง" ก่อนเปิดไมค์และเริ่มจับเวลาพูด
+const ENCOURAGE_FILE = "ENCOURAGE.mp3";          // เสียงปลอบใจจากครู (เล่นเมื่อไม่ผ่านเกณฑ์) วางข้าง index.html ว่างไว้ = ไม่เล่นเสียง
+const CELEBRATION_FILE = "CELEBRATION.mp3";      // ใส่ชื่อไฟล์เสียงฉลองของคุณเอง เช่น "celebrate.mp3" (วางข้าง index.html) ว่างไว้ = ใช้เสียงสังเคราะห์ + เสียงเชียร์
+
+const cheerAudio = new Audio('https://actions.google.com/sounds/v1/crowds/crowd_cheer.ogg');
+let audioCtx = null, celebMaster = null, customCelebAudio = null;
+
+// เสียงตอบ PASS/FAIL ถูกตัดออก (เสียงแตร/เสียงล้มดังเข้าไมค์ทำให้ AI รับเสียงผิด)
+function playPassSound() {}
+function playFailSound() {}
+
+function getAudioCtx() {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === "suspended") audioCtx.resume();
+    } catch (e) { audioCtx = null; }
+    return audioCtx;
+}
+
+// เสียงเตือนสั้นๆ ก่อนเริ่มอ่าน แล้วจึงเปิดไมค์ (รอเสียงจบก่อน ไมค์จะไม่ได้ยินเสียงนี้)
+function playStartCue() {
+    return new Promise(resolve => {
+        const ctx = START_CUE_ENABLED ? getAudioCtx() : null;
+        if (!ctx) return resolve();
+        const t0 = ctx.currentTime + 0.02;
+        [[880, 0, 0.12], [1320, 0.16, 0.18]].forEach(([f, d, len]) => {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.type = "sine"; o.frequency.value = f;
+            g.gain.setValueAtTime(0.0001, t0 + d);
+            g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + len);
+            o.connect(g); g.connect(ctx.destination);
+            o.start(t0 + d); o.stop(t0 + d + len + 0.02);
+        });
+        setTimeout(resolve, 650);   // เสียงจบที่ ~0.35 วินาที เผื่อเสียงสะท้อนอีกเล็กน้อย
     });
-  }
-  const add = SAMPLE_SENTENCES.filter(function (r) { return !existing[r[2].replace(/\s+/g, '')]; });
-  if (add.length) q.getRange(q.getLastRow() + 1, 1, add.length, Q_HEADERS.length).setValues(add);
-  try { SpreadsheetApp.getActive().toast('เพิ่มประโยคใหม่ ' + add.length + ' ข้อ', 'สถานีอ่านไทย', 5); } catch (e) {}
 }
 
-function onOpen() {
-  SpreadsheetApp.getUi().createMenu('📖 สถานีอ่านไทย')
-    .addItem('ตั้งค่าชีตครั้งแรก', 'setupSheets')
-    .addItem('เพิ่มประโยคตัวอย่าง ป.1-ป.2', 'addSampleSentences')
-    .addToUi();
+// 💛 เสียงปลอบใจจากครู: เล่นเมื่อผู้เรียนไม่ผ่านเกณฑ์
+function playEncouragement() {
+    stopCelebration();
+    if (!ENCOURAGE_FILE) return;
+    customCelebAudio = new Audio(ENCOURAGE_FILE);
+    customCelebAudio.play().catch(e => console.log(e));
 }
 
-// ---------- ประโยคตัวอย่าง ป.1 - ป.2 (level, difficulty, text, topic, active) ----------
-const SAMPLE_SENTENCES = [
-  ["P1", "LOW", "ตาไปนา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ป้ามีผ้า", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "แม่มาหาตา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ปูมีขา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ตามีหมา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "พี่ไปหาปู่", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ยายมีหมู", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "หมูมีหู", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ลุงมีเรือ", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ปลามีตา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ตาอยู่ที่นา", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "แม่ซื้อผ้า", "แม่ ก กา", "Y"],
-  ["P1", "LOW", "ฉันมีสมุด", "คำพื้นฐาน", "Y"],
-  ["P1", "LOW", "ฉันกินข้าว", "คำพื้นฐาน", "Y"],
-  ["P1", "LOW", "น้องกินนม", "แม่กม", "Y"],
-  ["P1", "MEDIUM", "นกบินบนฟ้า", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ปลาว่ายน้ำในบ่อ", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ฉันกินข้าวกับไข่", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ดอกไม้บานในสวน", "แม่กน", "Y"],
-  ["P1", "MEDIUM", "แมวชอบกินปลา", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ช้างมีงวงยาว", "แม่กง", "Y"],
-  ["P1", "MEDIUM", "วัวกินหญ้าในนา", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "น้องดื่มนมทุกเช้า", "แม่กม", "Y"],
-  ["P1", "MEDIUM", "ฉันล้างมือก่อนกินข้าว", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ดาวส่องแสงบนฟ้า", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "พ่อขับรถไปทำงาน", "แม่กบ แม่กด", "Y"],
-  ["P1", "MEDIUM", "ฉันชอบกินกล้วย", "คำควบกล้ำ", "Y"],
-  ["P1", "MEDIUM", "ท้องฟ้าสีฟ้าสวย", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "แม่ทำกับข้าวให้ฉันกิน", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "หมาวิ่งเล่นในสนาม", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "เด็กดีไหว้ครูทุกวัน", "คำควบกล้ำ", "Y"],
-  ["P1", "MEDIUM", "ฉันนั่งรถไปโรงเรียน", "ประโยคสั้น", "Y"],
-  ["P1", "MEDIUM", "ฉันมีลูกแมวสองตัว", "ประโยคสั้น", "Y"],
-  ["P1", "HIGH", "วันนี้ฉันไปโรงเรียนกับเพื่อน", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ฉันชอบฟังนิทานกับแม่", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ครูให้นักเรียนอ่านหนังสือในห้อง", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "เมื่อเช้าฝนตกหนักมาก", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "เด็กดีต้องล้างมือให้สะอาด", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ฉันช่วยแม่รดน้ำต้นไม้ที่บ้าน", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "พ่อพาฉันไปเที่ยวทะเลวันหยุด", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ฉันเห็นผีเสื้อบินในสวนดอกไม้", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ทุกเช้าฉันตื่นนอนแล้วแปรงฟัน", "คำควบกล้ำ", "Y"],
-  ["P1", "HIGH", "ที่บ้านของฉันมีต้นมะม่วงสองต้น", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "ฉันกับน้องช่วยกันเก็บของเล่น", "ประโยคยาว", "Y"],
-  ["P1", "HIGH", "วันนี้อากาศดีฉันจึงไปเล่นที่สวน", "ประโยคยาว", "Y"],
-  ["P2", "LOW", "นกน้อยบินไปหาแม่ที่รัง", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "ปลาตัวใหญ่ว่ายน้ำในแม่น้ำ", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "ช้างตัวโตกินกล้วยและอ้อย", "คำควบกล้ำ", "Y"],
-  ["P2", "LOW", "พี่สาวช่วยแม่ล้างจานทุกวัน", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "ฉันชอบเล่นกับน้องที่สนามหญ้า", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "ดอกกุหลาบสีแดงบานสวย", "คำศัพท์ใหม่", "Y"],
-  ["P2", "LOW", "ฝนตกหนักทำให้ถนนเปียก", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "เด็กหญิงกินขนมปังกับนมสด", "อักษรนำ", "Y"],
-  ["P2", "LOW", "กระต่ายน้อยกินแครอทสีส้ม", "คำควบกล้ำ", "Y"],
-  ["P2", "LOW", "ในห้องเรียนมีโต๊ะและเก้าอี้", "ประโยคสั้น", "Y"],
-  ["P2", "LOW", "เรากินผักและผลไม้ทุกวัน", "คำควบกล้ำ", "Y"],
-  ["P2", "LOW", "วันนี้ครูให้การบ้านสองข้อ", "ประโยคสั้น", "Y"],
-  ["P2", "MEDIUM", "เมื่อวานนี้ฉันไปตลาดกับคุณแม่", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ครอบครัวของฉันไปเที่ยวทะเลวันหยุด", "คำควบกล้ำ", "Y"],
-  ["P2", "MEDIUM", "เด็กนักเรียนเข้าแถวเคารพธงชาติทุกเช้า", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ฉันช่วยคุณพ่อปลูกต้นไม้หน้าบ้าน", "คำควบกล้ำ", "Y"],
-  ["P2", "MEDIUM", "คุณครูให้นักเรียนอ่านหนังสือก่อนนอน", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ผีเสื้อบินไปมาระหว่างดอกไม้", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "น้ำเป็นสิ่งสำคัญสำหรับสัตว์และพืช", "คำศัพท์ใหม่", "Y"],
-  ["P2", "MEDIUM", "พี่ชายของฉันขี่จักรยานไปโรงเรียน", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ฝนตกแล้วท้องฟ้าก็มีสายรุ้งสวยงาม", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "เด็กดีต้องพูดจาสุภาพและมีน้ำใจ", "คำศัพท์ใหม่", "Y"],
-  ["P2", "MEDIUM", "เราควรทิ้งขยะลงในถังขยะ", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ฉันแปรงฟันก่อนนอนทุกคืน", "คำควบกล้ำ", "Y"],
-  ["P2", "MEDIUM", "ปู่กับย่าชอบเลี้ยงไก่ที่หลังบ้าน", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ลูกแมวสามตัวนอนหลับใต้ต้นไม้", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "บนท้องฟ้ามีเมฆสีขาวลอยอยู่", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "ฉันชอบวาดรูปและระบายสีในวันหยุด", "ประโยคกลาง", "Y"],
-  ["P2", "MEDIUM", "คุณตาปลูกพริกและมะเขือไว้หลังบ้าน", "คำควบกล้ำ", "Y"],
-  ["P2", "MEDIUM", "เด็กทุกคนควรกินอาหารที่มีประโยชน์", "คำศัพท์ใหม่", "Y"],
-  ["P2", "HIGH", "ในวันหยุดฉันชอบช่วยคุณแม่ทำอาหารที่บ้าน", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ต้นไม้ช่วยให้อากาศสะอาดและมีร่มเงาเย็นสบาย", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "เด็กที่ขยันเรียนและตั้งใจฟังครูจะเก่งขึ้นทุกวัน", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "เมื่อเลิกเรียนฉันกลับบ้านแล้วทำการบ้านให้เสร็จก่อนเล่น", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "คุณลุงตำรวจช่วยพาเด็กนักเรียนข้ามถนนอย่างปลอดภัย", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ฉันรักโรงเรียนเพราะมีเพื่อนดีและมีคุณครูใจดี", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ช้างเป็นสัตว์ใหญ่ที่มีงวงยาวและมีงาสีขาว", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ทุกเช้าคุณตาให้อาหารปลาในบ่อหน้าบ้าน", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ฤดูฝนมีน้ำมากชาวนาจึงเริ่มปลูกข้าวในนา", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "เราควรประหยัดน้ำและไฟฟ้าเพื่อช่วยโลกของเรา", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ดวงอาทิตย์ให้แสงสว่างและความอบอุ่นแก่ทุกคน", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "เมื่อฝนหยุดตกเรามองเห็นสายรุ้งบนท้องฟ้า", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "ฉันกับเพื่อนช่วยกันเก็บขยะในสนามหลังเลิกเรียน", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "วันเสาร์ฉันไปห้องสมุดกับพี่สาวเพื่อยืมหนังสือ", "ประโยคยาว", "Y"],
-  ["P2", "HIGH", "นักเรียนที่ดีต้องมาโรงเรียนให้ตรงเวลาทุกวัน", "ประโยคยาว", "Y"]
-];
+// 🎉 เสียงฉลอง: ปรบมือ + เสียงเชียร์ + หวีด/วิ้ว + กรี๊ด
+function playCelebration() {
+    stopCelebration();
+    if (CELEBRATION_FILE) {
+        customCelebAudio = new Audio(CELEBRATION_FILE);
+        customCelebAudio.play().catch(e => console.log(e));
+        return;
+    }
+    try { cheerAudio.currentTime = 0; } catch (e) {}
+    cheerAudio.play().catch(e => console.log(e));
 
-/*
- วิธีติดตั้ง (ทำครั้งเดียว)
- 1) เปิด Google Sheet เดิม > Extensions (ส่วนขยาย) > Apps Script > ลบโค้ดเดิมใน Code.gs แล้ววางโค้ดนี้ทั้งหมด > Save
- 2) เลือกฟังก์ชัน setupSheets > กด Run > อนุญาตสิทธิ์ (Authorize) ครั้งแรก  -> ได้แท็บ ThaiQuestions / ThaiRank / ThaiLog พร้อมประโยค ป.1-ป.2
- 3) Deploy > Manage deployments > ไอคอนดินสอ (Edit) ของ Web app เดิม > Version: "New version" > Deploy
-    (ต้องเลือก New version บน deployment เดิม URL /exec จะได้ไม่เปลี่ยน และไม่ต้องแก้ index.html)
-    ตั้งค่า Execute as: Me / Who has access: Anyone
- 4) ทดสอบ: เปิด URL /exec ในเบราว์เซอร์ ต้องเห็น JSON รายการประโยค / เติม ?action=getRank ต้องเห็น [] หรืออันดับ
-*/
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const master = ctx.createGain();
+    master.gain.value = 0.9;
+    master.connect(ctx.destination);
+    celebMaster = master;
+    const t0 = ctx.currentTime + 0.05;
+
+    // 👏 ปรบมือ: เสียงรบกวนสั้นๆ หลายร้อยครั้ง เริ่มเบา ดังขึ้น แล้วค่อยซา
+    const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const nd = noise.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const DUR = 4.0;
+    for (let i = 0; i < 260; i++) {
+        const x = Math.random(), t = t0 + DUR * x;
+        const env = 0.2 + 0.8 * Math.sin(Math.PI * x);
+        const src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+        src.buffer = noise;
+        bp.type = "bandpass"; bp.frequency.value = 1200 + Math.random() * 2200; bp.Q.value = 0.8;
+        g.gain.setValueAtTime(0.5 * env, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.04);
+        src.connect(bp); bp.connect(g); g.connect(master);
+        src.start(t, Math.random() * 0.8, 0.12);
+    }
+
+    // 🎵 หวีด/วิ้ว: เสียงไซน์สูงไหลขึ้น มีสั่นเล็กน้อย
+    [[0.2, 1400, 2900, 0.55], [0.9, 1800, 3300, 0.5], [1.6, 2000, 2600, 0.8], [2.4, 1500, 3100, 0.6]].forEach(([d, f1, f2, len]) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(f1, t0 + d);
+        o.frequency.exponentialRampToValueAtTime(f2, t0 + d + len * 0.7);
+        lfo.frequency.value = 7; lg.gain.value = 35;
+        lfo.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(0.0001, t0 + d);
+        g.gain.exponentialRampToValueAtTime(0.22, t0 + d + 0.05);
+        g.gain.setValueAtTime(0.22, t0 + d + len - 0.1);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + len);
+        o.connect(g); g.connect(master);
+        o.start(t0 + d); lfo.start(t0 + d);
+        o.stop(t0 + d + len + 0.05); lfo.stop(t0 + d + len + 0.05);
+    });
+
+    // 😆 กรี๊ด: เสียงแหลมสั้นๆ ผ่านฟิลเตอร์
+    [[0.5, 0.45], [1.3, 0.4], [2.1, 0.5]].forEach(([d, len]) => {
+        const o = ctx.createOscillator(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(900, t0 + d);
+        o.frequency.exponentialRampToValueAtTime(1700, t0 + d + len * 0.6);
+        o.frequency.exponentialRampToValueAtTime(1300, t0 + d + len);
+        bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 2;
+        g.gain.setValueAtTime(0.0001, t0 + d);
+        g.gain.exponentialRampToValueAtTime(0.14, t0 + d + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + len);
+        o.connect(bp); bp.connect(g); g.connect(master);
+        o.start(t0 + d); o.stop(t0 + d + len + 0.05);
+    });
+}
+
+function stopCelebration() {
+    try { cheerAudio.pause(); cheerAudio.currentTime = 0; } catch (e) {}
+    if (customCelebAudio) { customCelebAudio.pause(); customCelebAudio = null; }
+    if (celebMaster && audioCtx) {
+        const m = celebMaster; celebMaster = null;
+        try { m.gain.cancelScheduledValues(0); m.gain.setValueAtTime(0, audioCtx.currentTime); } catch (e) {}
+        setTimeout(() => { try { m.disconnect(); } catch (e) {} }, 100);
+    }
+}
+
+// Audio objects
+const cheatAudio = new Audio('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg'); // เสียงเตือน Anti-Cheat
+
+// URL ที่ได้จากการ Deploy Google Apps Script ในขั้นตอนที่ 1
+const FIREBASE_CONFIG_URL = "https://script.google.com/macros/s/AKfycbxz5Rfjx7TqbNgu0TqTTeNtJpQZTl6QY1KWUBdKfSnjv5MFKnxgO2jjYfk2J3s7vibkFw/exec";
+
+// สร้างตัวแปร Global สำหรับ Firebase Database เพื่อให้ฟังก์ชันอื่นเรียกใช้ได้
+let db;
+
+async function initFirebase() {
+    try {
+        const response = await fetch(FIREBASE_CONFIG_URL);
+        const firebaseConfig = await response.json();
+        
+        // กำหนดค่าเริ่มต้นให้กับ Firebase หลังจากดึง Config มาได้
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.database();
+        console.log("Firebase initialized successfully via GAS.");
+        
+        // ย้ายการเรียกฟังก์ชัน Monitor ต่างๆ มาไว้ในนี้ 
+        // เพื่อให้แน่ใจว่า Firebase พร้อมใช้งานแล้ว
+        monitorMaintenance(); 
+        monitorAdminSettings(); 
+        monitorMachine(); 
+        monitorStock(); 
+        monitorRewards();
+        updateNameFieldForMode();
+    } catch (error) {
+        console.error("Error fetching Firebase config:", error);
+        alert("ไม่สามารถเชื่อมต่อระบบฐานข้อมูลได้ กรุณาลองรีเฟรชหน้าจอ");
+    }
+}
+
+let masterQuestions = []; 
+let questions = [];       
+let currentQuestion = 0;
+let totalScore = 0;
+let passCount = 0;
+let failCount = 0;
+
+let recognition;
+let isTestRunning = false; 
+let isRunning = false; 
+let isTestingPhase = false; // ตัวแปรคอยจับว่าเข้าสู่ขั้นตอนการอ่านข้อสอบอยู่หรือไม่ (สำหรับ Anti-cheat)
+let isAdminLoggedIn = false;
+let currentStock = { slot1: 0, slot2: 0 };
+
+// ---- บังคับกรอกชื่อในโหมดรับรางวัล ----
+let testStudentName = "";              // ชื่อที่ล็อกไว้ตลอดรอบทดสอบ (ใช้บันทึกคะแนนและออก OTP)
+const MIN_NAME_LENGTH = 2;             // ความยาวชื่อขั้นต่ำ
+const CLEAR_NAME_AFTER_TEST = false;   // true = ล้างช่องชื่อหลังจบรอบ (เหมาะกับเครื่อง Kiosk ที่หลายคนใช้ร่วมกัน)
+let currentMachineStatus = 'ready'; 
+
+let nextQuestionTimer = null;
+let displayInterval = null; 
+let startMicDelayTimeout = null; 
+let questionTimeout = null;     
+let speechCountdownInterval = null;
+
+let adminConfig = {
+    passRequirement: 5,
+    questionCount: 10,
+    difficulty: "ALL",
+    testDurationSeconds: 60,
+    cancelRequirement: false,
+    forceLevelControl: false, 
+    forcedLevel: "P1"
+};
+
+let initialCountdownTimer = null;
+let initialTime = 10;
+let footerClickCount = 0;
+let footerClickTimer = null;
+
+// ==========================================
+// 🚨 ANTI-CHEAT SYSTEM 🚨
+// ==========================================
+
+function closeCheatModal() {
+    document.getElementById("cheatModal").style.display = "none";
+}
+
+function triggerAntiCheat() {
+    // จะทำงานเฉพาะตอนอยู่ในช่วงอ่านข้อสอบ และอยู่ในโหมดรับรางวัลเท่านั้น
+    if (!isTestingPhase || adminConfig.cancelRequirement) return;
+
+    // แจ้งเตือน Pop-up และเล่นเสียง
+    document.getElementById("cheatModal").style.display = "flex";
+    cheatAudio.play().catch(e=>console.log(e));
+
+    // ปรับตกและข้ามข้อ
+    failCount++;
+    document.getElementById("failCount").innerHTML = failCount;
+    
+    document.getElementById("status").innerHTML = "ทุจริต! ข้ามข้อ ❌";
+    document.getElementById("status").className = "status fail";
+    document.getElementById("heardText").innerHTML = "ตรวจพบพฤติกรรมส่อทุจริต ระบบจึงข้ามข้อนี้";
+    
+    // ปิด Flag เพื่อไม่ให้ Trigger ซ้ำซ้อนตอนหน่วงเวลา
+    isTestingPhase = false; 
+    
+    clearTimeout(nextQuestionTimer);
+    nextQuestionTimer = setTimeout(() => {
+        nextQuestion();
+    }, 2500); // หน่วงเวลาให้ User อ่านคำเตือนนิดนึงก่อนกระโดดข้ามข้อ
+}
+
+// 1. ดักจับการ Copy และ คลิกขวา (Context Menu)
+document.addEventListener('copy', (e) => {
+    if (isTestingPhase && !adminConfig.cancelRequirement) {
+        e.preventDefault();
+        triggerAntiCheat();
+    }
+});
+document.addEventListener('contextmenu', (e) => {
+    if (isTestingPhase && !adminConfig.cancelRequirement) {
+        e.preventDefault();
+    }
+});
+
+// 2. ดักจับการสลับหน้าต่าง, ซ่อนหน้าจอ, เปลี่ยนแอป, เปลี่ยนแท็บ
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && isTestingPhase && !adminConfig.cancelRequirement) {
+        triggerAntiCheat();
+    }
+});
+
+// 3. ดักจับปุ่มคีย์บอร์ดสำหรับการแคปหน้าจอ (PrintScreen, Ctrl+C, Cmd+Shift+3, etc.)
+document.addEventListener('keydown', (e) => {
+    if (isTestingPhase && !adminConfig.cancelRequirement) {
+        if (e.key === 'PrintScreen' || 
+           (e.ctrlKey && e.key === 'c') || 
+           (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4' || e.key === 's'))) {
+            triggerAntiCheat();
+        }
+    }
+});
+
+// ==========================================
+// 💡 Dynamic Calculation & Recognition Algorithm
+// ==========================================
+// ตัดคำภาษาไทย: ถ้าในชีตเว้นวรรคไว้แล้วใช้ตามนั้น / ถ้าไม่เว้นใช้ Intl.Segmenter ของเบราว์เซอร์ (Chrome รองรับ) / สำรอง = แบ่งทีละ 3 ตัวอักษร
+let _thSegmenter = null;
+function thaiSegments(text) {
+    text = String(text || "").trim();
+    if (!text) return [];
+    if (/\s/.test(text)) return text.split(/\s+/).filter(Boolean);
+    try {
+        if (window.Intl && Intl.Segmenter) {
+            if (!_thSegmenter) _thSegmenter = new Intl.Segmenter('th', { granularity: 'word' });
+            const out = [];
+            for (const seg of _thSegmenter.segment(text)) {
+                if (seg.segment.trim()) out.push(seg.segment);
+            }
+            if (out.length) return out;
+        }
+    } catch (e) {}
+    return text.match(/[\s\S]{1,3}/g) || [text];
+}
+
+// ประมาณจำนวนพยางค์ไทยจากจำนวนพยัญชนะ (หยาบแต่พอใช้คำนวณเวลา)
+function estimateThaiSyllables(text) {
+    const consonants = (String(text || "").match(/[ก-ฮ]/g) || []).length;
+    return Math.max(1, Math.round(consonants * 0.75));
+}
+
+function calculateDynamicTime(sentence) {
+    const words = thaiSegments(sentence);
+    const wordCount = Math.max(1, words.length);
+    const totalSyllables = estimateThaiSyllables(sentence);
+
+    // 1. เวลาแสดงประโยคก่อนเปิดไมค์ (เด็กเล็กต้องการเวลามากกว่าผู้ใหญ่): คำละ 0.7 วินาที + 1.5 วินาที (3.5 - 9 วินาที)
+    const displayTime = Math.min(9000, Math.max(3500, wordCount * 700 + 1500));
+
+    // 2. เวลาเปิดไมค์ให้อ่าน: พยางค์ละ 0.9 วินาที + เผื่อเริ่มช้า 5 วินาที (10 - 25 วินาที)
+    let speechTime = Math.max(10000, (totalSyllables * 900) + 5000);
+    if (speechTime > 25000) speechTime = 25000;
+
+    return { displayTime, speechTime, wordCount, totalSyllables };
+}
+
+// แสดงประโยคทีละคำ (ตัวอักษรที่ยังไม่ถึงคิวซ่อน 100%)
+function renderSequentialText(sentence, totalDisplayTime) {
+    const container = document.getElementById("englishText");
+    container.innerHTML = ""; 
+    
+    const words = thaiSegments(sentence);
+    if(words.length === 0) return;
+
+    let wordIndex = 0;
+    
+    words.forEach(word => {
+        const span = document.createElement("span");
+        span.className = "w";
+        span.innerText = word;
+        span.style.opacity = "0"; 
+        span.style.transition = "opacity 0.25s ease-in-out, color 0.25s ease-in-out"; 
+        container.appendChild(span);
+    });
+
+    const spans = container.querySelectorAll("span");
+    clearInterval(displayInterval);
+    
+    const intervalTime = Math.floor(totalDisplayTime / words.length);
+    
+    displayInterval = setInterval(() => {
+        if (wordIndex < spans.length) {
+            spans[wordIndex].style.opacity = "1";
+            spans[wordIndex].style.color = "#35d8ff";
+            wordIndex++;
+        } else {
+            clearInterval(displayInterval);
+        }
+    }, intervalTime); 
+}
+
+function startSpeechCountdown(seconds) {
+    clearInterval(speechCountdownInterval);
+    let remaining = seconds;
+    
+    const updateDisplay = () => {
+        let m = Math.floor(remaining / 60).toString().padStart(2, '0');
+        let s = (remaining % 60).toString().padStart(2, '0');
+        document.getElementById("countdown").innerText = `${m}:${s}`;
+    };
+
+    updateDisplay();
+    speechCountdownInterval = setInterval(() => {
+        remaining--;
+        if (remaining >= 0) {
+            updateDisplay();
+        } else {
+            clearInterval(speechCountdownInterval);
+        }
+    }, 1000);
+}
+
+function startRecognition() {
+    if (isRunning) return;
+    if (!ensureStudentName()) return;   // โหมดรับรางวัลต้องมีชื่อก่อนเริ่ม
+    stopCelebration();                  // หยุดเสียงฉลองที่อาจค้างจากรอบก่อน (กันไมค์รับเสียง)
+    getAudioCtx();                      // ปลดล็อกระบบเสียงด้วยการกดปุ่มของผู้ใช้
+    
+    const currentSentence = questions[currentQuestion].text;
+    const timing = calculateDynamicTime(currentSentence);
+
+    markQuestionAsked(questions[currentQuestion]);   // จำไว้ว่าข้อนี้ถูกถามแล้ว รอบหน้าจะไม่สุ่มซ้ำ
+
+    // เปิด Flag การทำข้อสอบ เพื่อให้ระบบ Anti-Cheat เริ่มตรวจสอบ
+    isTestingPhase = true;
+
+    document.getElementById("startBtn").disabled = true;
+    document.getElementById("startBtn").innerHTML = "⏳ กำลังแสดงประโยค...";
+    document.getElementById("status").innerHTML = "เตรียมตัวอ่าน...";
+    document.getElementById("status").className = "status";
+    
+    const displaySec = Math.ceil(timing.displayTime/1000);
+    const speechSec = Math.ceil(timing.speechTime/1000);
+    document.getElementById("heardText").innerHTML = `🕒 แสดงประโยค ${displaySec} วิ | เปิดไมค์ให้อ่าน ${speechSec} วิ (ประมาณ ${timing.totalSyllables} พยางค์)`;
+
+    renderSequentialText(currentSentence, timing.displayTime);
+
+    startMicDelayTimeout = setTimeout(async () => {
+        stopSentenceAudio();                // กันเสียงอ่านประโยคตัวอย่างหลุดเข้าไมค์
+        await playStartCue();               // เสียงเตือน "เริ่มพูด" แล้วจึงเปิดไมค์และเริ่มจับเวลา
+        if (!isTestingPhase) return;        // ถูกยกเลิกระหว่างรอเสียงเตือน (เช่น ทุจริต/เริ่มรอบใหม่)
+        isRunning = true;
+        try {
+            recognition.start();
+            document.getElementById("startBtn").innerHTML = "🎙️ กำลังฟังเสียง...";
+            document.getElementById("status").innerHTML = "อ่านเลย!";
+            document.getElementById("heardText").innerHTML = "AI กำลังฟังเสียงอ่าน...";
+
+            startSpeechCountdown(speechSec);
+
+            questionTimeout = setTimeout(() => {
+                if (isRunning) {
+                    isRunning = false;
+                    recognition.stop();
+                    clearInterval(speechCountdownInterval);
+                    document.getElementById("status").innerHTML = "หมดเวลาอ่าน ⏱️";
+                    document.getElementById("status").className = "status fail";
+                    document.getElementById("heardText").innerHTML = "ประมวลผลคำตอบช้าเกินไป ข้ามไปข้อถัดไป...";
+                    
+                    failCount++;
+                    document.getElementById("failCount").innerHTML = failCount;
+                    playFailSound();
+
+                    isTestingPhase = false; // ปิด Flag เมื่อหมดเวลา
+                    nextQuestionTimer = setTimeout(() => {
+                        nextQuestion();
+                    }, 1500);
+                }
+            }, timing.speechTime);
+
+        } catch (e) {
+            console.error("Mic error:", e);
+            isRunning = false;
+            isTestingPhase = false;
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("startBtn").innerHTML = "🎤 เริ่มอ่านอีกครั้ง";
+        }
+    }, timing.displayTime);
+}
+
+// ==========================================
+// 🎯 ฟังก์ชันจัดการ Level UI & Mobile Admin Trigger
+// ==========================================
+function setupMobileAdminTrigger() {
+    const footer = document.getElementById("footerAdminTrigger");
+    footer.addEventListener("click", () => {
+        footerClickCount++;
+        if (footerClickCount === 1) {
+            footerClickTimer = setTimeout(() => {
+                footerClickCount = 0;
+            }, 800);
+        } else if (footerClickCount >= 3) {
+            clearTimeout(footerClickTimer);
+            footerClickCount = 0;
+            openAdminModal();
+        }
+    });
+}
+
+function applyLevelControl() {
+    const userContainer = document.getElementById("userLevelContainer");
+    const userSelect = document.getElementById("userLevel");
+    const popup = document.getElementById("initialLevelModal");
+
+    if (adminConfig.forceLevelControl) {
+        userContainer.style.display = "none";
+        userSelect.value = validLevel(adminConfig.forcedLevel);
+        appliedLevel = validLevel(adminConfig.forcedLevel);
+        document.getElementById("levelPending").classList.remove("show");
+
+        if (popup.style.display === "flex") {
+            clearInterval(initialCountdownTimer);
+            popup.style.display = "none";
+            fetchQuestionsFromGAS(); 
+        }
+    } else {
+        userContainer.style.display = "flex";
+    }
+}
+
+function showInitialPopup() {
+    if (adminConfig.forceLevelControl) {
+        document.getElementById("userLevel").value = validLevel(adminConfig.forcedLevel);
+        fetchQuestionsFromGAS();
+        return;
+    }
+
+    document.getElementById("initialLevelModal").style.display = "flex";
+    initialTime = 10;
+    document.getElementById("initialTimer").innerText = initialTime;
+    document.getElementById("popupLevelSelect").value = DEFAULT_LEVEL; 
+
+    initialCountdownTimer = setInterval(() => {
+        initialTime--;
+        document.getElementById("initialTimer").innerText = initialTime;
+        
+        if (initialTime <= 0) {
+            clearInterval(initialCountdownTimer);
+            confirmInitialLevel(); 
+        }
+    }, 1000);
+}
+
+function confirmInitialLevel() {
+    clearInterval(initialCountdownTimer);
+    document.getElementById("initialLevelModal").style.display = "none";
+    
+    if (!adminConfig.forceLevelControl) {
+        const selectedLevel = document.getElementById("popupLevelSelect").value;
+        document.getElementById("userLevel").value = selectedLevel;
+    }
+    
+    fetchQuestionsFromGAS();
+}
+
+window.onload = async () => {
+    // 1. เริ่มต้น Firebase ผ่าน GAS ก่อน
+    await initFirebase();
+
+    // 2. โค้ดเดิมที่เหลือเกี่ยวกับการจัดการ SpeechRecognition...
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("เบราว์เซอร์ของคุณไม่รองรับระบบรู้จำเสียงพูด กรุณาเปิดด้วย Google Chrome (แนะนำ) หรือ Safari");
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = SPEECH_LANG;   // th-TH
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = function(event){
+        if(!isRunning) return;
+        isRunning = false;
+        isTestingPhase = false; // รับผลเสร็จแล้ว ปิดการตรวจจับ Anti-cheat ชั่วคราว
+        clearTimeout(questionTimeout); 
+        clearInterval(speechCountdownInterval);
+
+        const speechResult = event.results[0][0].transcript;
+        const target = questions[currentQuestion].text;
+        const score = similarity(target, speechResult);   // เทียบแบบไทย (ตัดช่องว่าง/วรรคตอน/วรรณยุกต์)
+
+        document.getElementById("heardText").innerHTML = "AI ได้ยิน: \"" + speechResult + "\"";
+        document.getElementById("score").innerHTML = score + "%";
+        totalScore += score;
+        document.getElementById("totalScore").innerHTML = totalScore;
+
+        if(score >= PASS_SCORE){
+            passCount++;
+            document.getElementById("passCount").innerHTML = passCount;
+            document.getElementById("status").innerHTML = "ผ่าน ✅";
+            document.getElementById("status").className = "status pass";
+            playPassSound();
+        } else {
+            failCount++;
+            document.getElementById("failCount").innerHTML = failCount;
+            document.getElementById("status").innerHTML = "ยังไม่ผ่าน ❌";
+            document.getElementById("status").className = "status fail";
+            playFailSound();
+        }
+
+        document.getElementById("startBtn").disabled = true;
+
+        nextQuestionTimer = setTimeout(() => {
+            nextQuestion();
+        }, 1500);
+    };
+
+    recognition.onerror = function(event){
+        console.log("Recognition Error:", event.error);
+        if(!isRunning) return;
+        isRunning = false; 
+        isTestingPhase = false;
+        clearTimeout(questionTimeout);
+        clearInterval(speechCountdownInterval);
+
+        document.getElementById("status").innerHTML = "ไมโครโฟนมีปัญหา ❌";
+        document.getElementById("status").className = "status fail";
+        document.getElementById("heardText").innerHTML = "ระบบไมค์ถูกขัดจังหวะ ข้ามไปข้อถัดไป...";
+        
+        failCount++;
+        document.getElementById("failCount").innerHTML = failCount;
+        playFailSound();
+        
+        nextQuestionTimer = setTimeout(() => {
+            nextQuestion();
+        }, 1500);
+    };
+
+    recognition.onend = function() {
+        if(isRunning) { 
+            console.log("Recognition ended unexpectedly."); 
+            isRunning = false;
+            isTestingPhase = false;
+            clearTimeout(questionTimeout);
+            clearInterval(speechCountdownInterval);
+
+            document.getElementById("status").innerHTML = "เสียงเงียบเกินไป ⚠️";
+            document.getElementById("status").className = "status fail";
+            document.getElementById("heardText").innerHTML = "ไม่พบเสียงอ่าน ข้ามไปข้อถัดไป...";
+            
+            failCount++;
+            document.getElementById("failCount").innerHTML = failCount;
+            playFailSound();
+
+            nextQuestionTimer = setTimeout(() => {
+                nextQuestion();
+            }, 1500);
+        }
+    };
+
+    setupMobileAdminTrigger();
+    showInitialPopup(); 
+};
+
+// ==========================================
+// 🔄 ฟังก์ชันเชื่อมต่อใหม่
+// ==========================================
+function retryConnection() {
+    document.getElementById("reconnectBtn").style.display = "none";
+    const startBtn = document.getElementById("startBtn");
+    startBtn.style.display = "inline-block";
+    startBtn.disabled = true;
+    startBtn.innerHTML = "⏳ กรุณารอสักครู่";
+    
+    document.getElementById("questionNumber").innerHTML = "ระบบกำลังเชื่อมต่อ...";
+    document.getElementById("englishText").innerHTML = "กำลังโหลด...";
+    document.getElementById("thaiText").innerHTML = "กำลังเตรียมประโยคสำหรับอ่าน";
+    
+    fetchQuestionsFromGAS();
+}
+
+// ==========================================
+// 🎁 ระบบดูของรางวัล (Reward System)
+// ==========================================
+function openRewardModal() { document.getElementById("rewardModal").style.display = "flex"; }
+function closeRewardModal() { document.getElementById("rewardModal").style.display = "none"; }
+
+function monitorRewards() {
+    // ฟังแยกทีละ child (ภาพวิธีใช้งานมีขนาดใหญ่กว่า จะได้ไม่ถูกโหลดซ้ำทุกครั้งที่ภาพรางวัลเปลี่ยน)
+    db.ref('machine/rewards/slot1').on('value', (snap) => {
+        const v = snap.val();
+        if (v) document.getElementById("rewardImg1").src = v;
+    });
+    db.ref('machine/rewards/slot2').on('value', (snap) => {
+        const v = snap.val();
+        if (v) document.getElementById("rewardImg2").src = v;
+    });
+    monitorGuide();
+}
+
+// ==========================================
+// 📖 ระบบภาพวิธีการใช้งานระบบ (Guide)
+// ==========================================
+function openGuideModal() { document.getElementById("guideModal").style.display = "flex"; }
+function closeGuideModal() {
+    document.getElementById("guideModal").style.display = "none";
+    const img = document.getElementById("guideImg");
+    if (img) img.classList.remove("zoomed");
+}
+function toggleGuideZoom() { document.getElementById("guideImg").classList.toggle("zoomed"); }
+
+function openAdminGuideModal() {
+    document.getElementById("adminGuideModal").style.display = "flex";
+    loadAdminGuide();
+}
+function closeAdminGuideModal() {
+    document.getElementById("adminGuideModal").style.display = "none";
+    document.getElementById("adminGuideImg").classList.remove("zoomed");
+}
+// โหลดภาพวิธีดูแลระบบเฉพาะตอน Admin เปิดดู (once) ไม่ฟังแบบ real-time กันผู้ใช้ทั่วไปโหลดภาพใหญ่โดยไม่จำเป็น
+function loadAdminGuide() {
+    if (!db) return;
+    db.ref('machine/rewards/adminGuide').once('value').then((snap) => {
+        const v = snap.val();
+        const img = document.getElementById("adminGuideImg");
+        const empty = document.getElementById("adminGuideEmpty");
+        const hint = document.getElementById("adminGuideHint");
+        if (v) {
+            img.src = v; img.style.display = "block";
+            empty.style.display = "none"; hint.style.display = "block";
+        } else {
+            img.removeAttribute("src"); img.style.display = "none";
+            empty.style.display = "block"; hint.style.display = "none";
+        }
+    }).catch(err => alert("❌ โหลดภาพวิธีดูแลระบบไม่สำเร็จ: " + err));
+}
+
+function monitorGuide() {
+    db.ref('machine/rewards/guide').on('value', (snap) => {
+        const v = snap.val();
+        const img = document.getElementById("guideImg");
+        const empty = document.getElementById("guideEmpty");
+        const hint = document.getElementById("guideHint");
+        if (v) {
+            img.src = v;
+            img.style.display = "block";
+            empty.style.display = "none";
+            hint.style.display = "block";
+        } else {
+            img.removeAttribute("src");
+            img.style.display = "none";
+            empty.style.display = "block";
+            hint.style.display = "none";
+        }
+    });
+}
+
+function uploadGuideImage(inputId = 'adminImgGuide', path = 'machine/rewards/guide', label = 'วิธีใช้งานระบบ') {
+    const file = document.getElementById(inputId).files[0];
+    if (!file) {
+        alert("กรุณาเลือกไฟล์ภาพ" + label + "ก่อนกด Upload ครับ");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1400;   // ภาพวิธีใช้งานมีตัวหนังสือ ต้องละเอียดกว่าภาพรางวัล (600px)
+            let scaleSize = MAX_WIDTH / img.width;
+            if (scaleSize > 1) scaleSize = 1;
+
+            canvas.width = Math.round(img.width * scaleSize);
+            canvas.height = Math.round(img.height * scaleSize);
+
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = "#ffffff";   // กันภาพ PNG โปร่งใสกลายเป็นพื้นดำตอนแปลงเป็น JPEG
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+            db.ref(path).set(dataUrl)
+                .then(() => {
+                    alert("✅ อัปโหลดและบันทึกภาพ" + label + "เรียบร้อยแล้ว!");
+                    if (path === 'machine/rewards/adminGuide') loadAdminGuide();
+                })
+                .catch(err => alert("❌ เกิดข้อผิดพลาดในการอัปโหลดภาพ: " + err));
+        };
+        img.onerror = function() { alert("❌ ไม่สามารถอ่านไฟล์ภาพนี้ได้ ลองใช้ไฟล์ JPG หรือ PNG ครับ"); };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function uploadImage(slot) {
+    const inputId = slot === 'slot1' ? 'adminImgSlot1' : 'adminImgSlot2';
+    const fileInput = document.getElementById(inputId);
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert("กรุณาเลือกไฟล์ภาพก่อนกด Upload ครับ");
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 600;
+            let scaleSize = MAX_WIDTH / img.width;
+            if (scaleSize > 1) scaleSize = 1; 
+
+            canvas.width = img.width * scaleSize;
+            canvas.height = img.height * scaleSize;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+            db.ref(`machine/rewards/${slot}`).set(dataUrl)
+                .then(() => alert(`✅ อัปโหลดและบันทึกภาพ ${slot === 'slot1' ? 'Slot A' : 'Slot B'} เรียบร้อยแล้ว!`))
+                .catch(err => alert("❌ เกิดข้อผิดพลาดในการอัปโหลดภาพ: " + err));
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+// ==========================================
+// 🧑 ระบบบังคับกรอกชื่อ (โหมดรับรางวัล)
+// ==========================================
+function normalizeName(raw) {
+    return (raw || "").replace(/\s+/g, " ").trim();
+}
+
+function updateNameFieldForMode() {
+    const input = document.getElementById("studentName");
+    const hint = document.getElementById("nameHint");
+    if (!input || !hint) return;
+    const required = !adminConfig.cancelRequirement;
+    input.placeholder = required ? "กรอกชื่อผู้เข้ารับการประเมิน (จำเป็น)" : "กรอกชื่อผู้เข้ารับการประเมิน (ไม่บังคับ)";
+    hint.style.display = required ? "block" : "none";
+    hint.classList.remove("warn");
+    input.classList.remove("name-required");
+}
+
+function onNameInput() {
+    document.getElementById("studentName").classList.remove("name-required");
+    document.getElementById("nameHint").classList.remove("warn");
+}
+
+function requireStudentName() {
+    const input = document.getElementById("studentName");
+    input.classList.remove("name-required");
+    void input.offsetWidth;                       // รีสตาร์ทแอนิเมชันสั่น
+    input.classList.add("name-required");
+    document.getElementById("nameHint").classList.add("warn");
+    document.getElementById("status").innerHTML = "⚠️ กรุณากรอกชื่อก่อนเริ่มประเมินรับรางวัล";
+    document.getElementById("status").className = "status fail";
+    input.scrollIntoView({ behavior: "smooth", block: "center" });
+    input.focus();
+}
+
+// คืน true เมื่อผ่านเงื่อนไขชื่อ (โหมดฝึกฝนผ่านเสมอ)
+function ensureStudentName() {
+    if (adminConfig.cancelRequirement) return true;
+    if (testStudentName) return true;
+    const input = document.getElementById("studentName");
+    const name = normalizeName(input.value);
+    if (name.length < MIN_NAME_LENGTH) {
+        requireStudentName();
+        return false;
+    }
+    testStudentName = name;
+    input.value = name;
+    input.readOnly = true;                        // ล็อกชื่อตลอดรอบทดสอบ
+    onNameInput();
+    return true;
+}
+
+function unlockStudentName(clearField) {
+    const input = document.getElementById("studentName");
+    testStudentName = "";
+    input.readOnly = false;
+    if (clearField) input.value = "";
+}
+
+// ยกเลิกกิจกรรมที่กำลังทำอยู่ทั้งหมด (ตัวจับเวลา, ไมค์, เสียงอ่าน) เพื่อให้สลับโหมด/ระดับได้ทันที
+function abortCurrentSession() {
+    clearInterval(displayInterval);
+    clearInterval(speechCountdownInterval);
+    clearTimeout(nextQuestionTimer);
+    clearTimeout(startMicDelayTimeout);
+    clearTimeout(questionTimeout);
+    stopSentenceAudio();
+
+    // ตั้ง isRunning = false ก่อนสั่งหยุดไมค์ เพื่อไม่ให้ onend/onerror นับเป็นข้อที่ตก
+    const wasRunning = isRunning;
+    isRunning = false;
+    isTestingPhase = false;
+    if (wasRunning && recognition) {
+        try { recognition.abort ? recognition.abort() : recognition.stop(); } catch (e) {}
+    }
+    document.getElementById("cheatModal").style.display = "none";
+}
+
+// ถามยืนยันเฉพาะกรณีที่กำลังสอบรับรางวัลและทำไปแล้วอย่างน้อย 1 ข้อ (กันเผลอกดจนเสียสิทธิ์รับ OTP)
+function confirmAbandonRound() {
+    const midRewardRound = !adminConfig.cancelRequirement && isTestRunning &&
+                           (currentQuestion > 0 || isRunning || isTestingPhase);
+    if (!midRewardRound) return true;
+    return confirm("⚠️ คุณกำลังประเมินรับรางวัลอยู่\nหากเปลี่ยนตอนนี้ คะแนนรอบนี้จะถูกยกเลิก\n\nต้องการเปลี่ยนต่อหรือไม่?");
+}
+
+// ระดับที่ใช้สุ่มข้อสอบอยู่จริง (เปลี่ยนเมื่อกด "ยืนยันการเลือกระดับ" เท่านั้น)
+let appliedLevel = null;
+function validLevel(l) { return (l && LEVEL_LABELS[l]) ? l : DEFAULT_LEVEL; }
+const LEVEL_LABELS = { P1: "ประถมศึกษาปีที่ 1", P2: "ประถมศึกษาปีที่ 2" };   // เพิ่มระดับใหม่ (เช่น P3) ได้ที่นี่ + <option> + ชีต
+
+// เลือกระดับใหม่ในช่อง -> ยังไม่สุ่มข้อสอบใหม่ แค่แสดงปุ่มยืนยัน (ถ้าเลือกกลับเป็นระดับเดิม ปุ่มจะหายไป)
+function onLevelChange() {
+    refreshLevelPendingUI();
+}
+
+function refreshLevelPendingUI() {
+    const sel = document.getElementById("userLevel");
+    const box = document.getElementById("levelPending");
+    const pending = !!appliedLevel && sel.value !== appliedLevel;
+    box.classList.toggle("show", pending);
+    if (pending) {
+        document.getElementById("levelPendingNote").innerHTML =
+            "⚠️ ยังไม่ได้ยืนยัน — ตอนนี้ยังใช้ประโยคระดับ <b>" + (LEVEL_LABELS[appliedLevel] || appliedLevel) +
+            "</b> อยู่<br>กดปุ่มด้านล่างเพื่อเปลี่ยนเป็น <b>" + (LEVEL_LABELS[sel.value] || sel.value) + "</b>";
+    }
+}
+
+function confirmLevelChange() {
+    const sel = document.getElementById("userLevel");
+    if (adminConfig.forceLevelControl || sel.value === appliedLevel) {
+        refreshLevelPendingUI();
+        return;
+    }
+    if (!confirmAbandonRound()) {
+        sel.value = appliedLevel;          // ผู้ใช้ไม่ยืนยัน -> คืนระดับเดิม
+        refreshLevelPendingUI();
+        return;
+    }
+    appliedLevel = sel.value;
+    refreshLevelPendingUI();               // ซ่อนปุ่มยืนยัน
+    if (masterQuestions.length > 0) {
+        prepareQuestions();                // หยุดรอบเดิม แล้วสุ่มข้อสอบใหม่ตามระดับที่เลือก
+    } else {
+        fetchQuestionsFromGAS();           // ยังไม่เคยโหลดคลังข้อสอบ -> โหลดแล้วสุ่มให้เอง
+    }
+}
+
+function selectUserMode(mode) {
+    const wantPractice = (mode === 'practice');
+    if (wantPractice === adminConfig.cancelRequirement) return;   // เลือกโหมดเดิมซ้ำ ไม่ต้องทำอะไร
+
+    if (!confirmAbandonRound()) return;
+
+    const btnReward = document.getElementById("modeRewardBtn");
+    const btnPractice = document.getElementById("modePracticeBtn");
+
+    if (mode === 'practice') {
+        adminConfig.cancelRequirement = true; 
+        btnPractice.classList.add("active");
+        btnReward.classList.remove("active");
+    } else {
+        adminConfig.cancelRequirement = false; 
+        btnReward.classList.add("active");
+        btnPractice.classList.remove("active");
+    }
+    updateNameFieldForMode();
+
+    abortCurrentSession();   // หยุดของเดิมทันที แล้วเริ่มชุดข้อสอบใหม่ตามโหมดที่เลือก
+    if (masterQuestions.length > 0) prepareQuestions();
+}
+
+function openRankModal() {
+    document.getElementById("rankModal").style.display = "flex";
+    fetchRankData();
+}
+function closeRankModal() { document.getElementById("rankModal").style.display = "none"; }
+
+// ส่งชื่อ/คะแนนไป Google Apps Script ด้วย GET (doGet รับพารามิเตอร์ name, score, pass, fail)
+// หมายเหตุ: POST + application/json แบบ no-cors ถูกเบราว์เซอร์ตัด Content-Type และ GAS ไม่ได้รับข้อมูล
+function saveToGoogleSheet(name, score, pass, fail, attempt = 1) {
+    const mode = adminConfig.cancelRequirement ? 'practice' : 'reward';
+    const url = `${GOOGLE_SCRIPT_URL}?name=${encodeURIComponent(name)}&score=${score}&pass=${pass}&fail=${fail}` +
+                `&level=${encodeURIComponent(appliedLevel || DEFAULT_LEVEL)}&total=${questions.length}&mode=${mode}`;
+
+    fetch(url, { mode: 'no-cors', keepalive: true })
+        .then(() => console.log("บันทึกสถิติลง Google Sheet สำเร็จ:", name, score))
+        .catch(err => {
+            console.error("ไม่สามารถบันทึก Google Sheet ได้:", err);
+            if (attempt < 3) setTimeout(() => saveToGoogleSheet(name, score, pass, fail, attempt + 1), 2000);
+        });
+}
+
+async function fetchRankData() {
+    const tableBody = document.getElementById("rankTableBody");
+    tableBody.innerHTML = '<div class="loading-rank">กำลังโหลดข้อมูลอันดับ... ⏳</div>';
+
+    try {
+        const response = await fetch(GOOGLE_SCRIPT_URL + "?action=getRank&t=" + Date.now(), { cache: "no-store" });
+        const data = await response.json();
+
+        if (!Array.isArray(data)) {
+            throw new Error("Unexpected rank response: " + JSON.stringify(data).slice(0, 200));
+        }
+
+        renderRankTable(data);   // ว่างเปล่า = แสดง "ยังไม่มีข้อมูลผู้ทดสอบ" (ไม่แสดงข้อมูลปลอมอีกต่อไป)
+
+    } catch (error) {
+        console.error("Error fetching rank:", error);
+        tableBody.innerHTML = '<div class="loading-rank" style="color:var(--red);">ไม่สามารถเชื่อมต่อฐานข้อมูลได้ ❌</div>';
+    }
+}
+
+function renderRankTable(data) {
+    const tableBody = document.getElementById("rankTableBody");
+    tableBody.innerHTML = "";
+
+    if (data.length === 0) {
+        tableBody.innerHTML = '<div class="loading-rank">ยังไม่มีข้อมูลผู้เข้าประเมิน 🌟</div>';
+        return;
+    }
+
+    data.forEach((user, index) => {
+        const actualRank = index + 1; 
+        let rankClass = "";
+        if (actualRank === 1) rankClass = "rank-1";
+        else if (actualRank === 2) rankClass = "rank-2";
+        else if (actualRank === 3) rankClass = "rank-3";
+
+        const rowHTML = `
+            <div class="rank-row ${rankClass}">
+                <div class="rank-badge">${actualRank}</div>
+                <div style="text-align: left; padding-left: 10px; font-weight: 500;">${user.name}</div>
+                <div>${user.attempts || 1}</div>
+                <div class="rank-score">${user.score}</div>
+            </div>
+        `;
+        tableBody.innerHTML += rowHTML;
+    });
+}
+
+function monitorMaintenance() {
+    db.ref('machine/maintenance').on('value', (snap) => {
+        const data = snap.val() || { isActive: false, date: '', time: '', message: '' };
+        
+        document.getElementById("maintSwitch").checked = data.isActive;
+        document.getElementById("adminMaintDate").value = data.date || "";
+        document.getElementById("adminMaintTime").value = data.time || "";
+        document.getElementById("adminMaintMsg").value = data.message || "";
+
+        const overlay = document.getElementById("maintenanceOverlay");
+        if(data.isActive) {
+            overlay.style.display = "flex";
+            let dateStr = data.date;
+            if(dateStr) {
+                const d = new Date(dateStr);
+                dateStr = d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+            }
+            document.getElementById("maintDateUI").innerText = dateStr || "เร็วๆ นี้";
+            document.getElementById("maintTimeUI").innerText = data.time || "-";
+            document.getElementById("maintMsgUI").innerText = data.message || "กำลังดำเนินการปรับปรุงระบบ ขออภัยในความไม่สะดวกครับ";
+        } else {
+            overlay.style.display = "none";
+        }
+    });
+}
+
+function toggleMaintenance(isActive) { db.ref('machine/maintenance/isActive').set(isActive); }
+
+function saveMaintenanceInfo() {
+    const date = document.getElementById("adminMaintDate").value;
+    const time = document.getElementById("adminMaintTime").value;
+    const msg = document.getElementById("adminMaintMsg").value;
+    
+    db.ref('machine/maintenance/date').set(date);
+    db.ref('machine/maintenance/time').set(time);
+    db.ref('machine/maintenance/message').set(msg);
+    
+    alert("บันทึกข้อมูลแจ้งเตือน Maintenance สำเร็จเรียบร้อยแล้ว!");
+}
+
+async function fetchQuestionsFromGAS() {
+    try {
+        const response = await fetch(GAS_QUESTION_URL);
+        const data = await response.json();
+
+        if (Array.isArray(data) && data.length > 0) {
+            masterQuestions = data;
+            document.getElementById("reconnectBtn").style.display = "none";
+            document.getElementById("startBtn").style.display = "inline-block";
+            prepareQuestions(); 
+        } else {
+            throw new Error("Empty Data");
+        }
+    } catch (error) {
+        console.error("Error fetching questions:", error);
+        document.getElementById("questionNumber").innerHTML = "การเชื่อมต่อขัดข้อง";
+        document.getElementById("englishText").innerHTML = "เชื่อมต่อ<br>ไม่สำเร็จ";
+        document.getElementById("thaiText").innerHTML = "ไม่สามารถเชื่อมต่อคลังประโยคได้";
+        
+        document.getElementById("startBtn").style.display = "none";
+        document.getElementById("reconnectBtn").style.display = "inline-block";
+    }
+}
+
+// ==========================================
+// 🎲 ระบบสุ่มข้อสอบแบบไม่ซ้ำข้ามรอบ (Non-repeating Random Picker)
+// ==========================================
+// เดิมใช้ sort(() => 0.5 - Math.random()) ซึ่งสุ่มไม่เป็นธรรม (ข้อที่อยู่ต้นชีตมีโอกาสถูกเลือกสูงกว่า)
+// และไม่จำว่ารอบก่อนถามอะไรไปแล้ว จึงเจอข้อซ้ำบ่อย
+const ASKED_HISTORY_PREFIX = "thaiReadAsked_v1_";
+
+// ตัวเลขสุ่มคุณภาพสูง (crypto) ช่วง 0..max-1
+function secureRandInt(max) {
+    if (max <= 1) return 0;
+    try {
+        const buf = new Uint32Array(1);
+        const limit = Math.floor(0x100000000 / max) * max;   // กัน modulo bias
+        let x;
+        do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+        return x % max;
+    } catch (e) {
+        return Math.floor(Math.random() * max);
+    }
+}
+
+// Fisher-Yates shuffle (คืนอาร์เรย์ใหม่ ไม่แก้ของเดิม)
+function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = secureRandInt(i + 1);
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function questionKey(q) {
+    return normalizeThai((q && q.text) || "");
+}
+
+function loadAskedSet(level) {
+    try {
+        const raw = localStorage.getItem(ASKED_HISTORY_PREFIX + level);
+        return new Set(raw ? JSON.parse(raw) : []);
+    } catch (e) { return new Set(); }
+}
+
+function saveAskedSet(level, set) {
+    try { localStorage.setItem(ASKED_HISTORY_PREFIX + level, JSON.stringify(Array.from(set))); } catch (e) {}
+}
+
+// บันทึกว่าข้อนี้ถูกถามแล้ว (เรียกตอนผู้ใช้เริ่มพูดจริง ไม่ใช่ตอนสุ่มชุดข้อสอบ
+// เพื่อไม่ให้การเปลี่ยนระดับ/โหมด/ตั้งค่า Admin ทำให้ข้อสอบ "หมดฟรี")
+function markQuestionAsked(q) {
+    if (!q) return;
+    const level = q.level || "General";
+    const set = loadAskedSet(level);
+    set.add(questionKey(q));
+    saveAskedSet(level, set);
+}
+
+// เลือกข้อสอบ: เน้นข้อที่ยังไม่เคยถาม -> ถ้าไม่พอจึงล้างประวัติของคลังนี้แล้วเติมให้ครบ
+// เมื่อเลือกความยาก "ALL" จะกระจายข้อสอบจาก LOW/MEDIUM/HIGH ให้สมดุลกัน
+function pickFreshQuestions(pool, level, count) {
+    // 1) ตัดข้อซ้ำในคลัง (ประโยคเดียวกันที่อยู่หลายแถว)
+    const seen = new Set();
+    const unique = [];
+    pool.forEach(q => {
+        const k = questionKey(q);
+        if (k && !seen.has(k)) { seen.add(k); unique.push(q); }
+    });
+
+    if (unique.length <= count) return shuffleArray(unique);
+
+    // 2) แยกข้อที่ยังไม่เคยถาม
+    const asked = loadAskedSet(level);
+    let fresh = unique.filter(q => !asked.has(questionKey(q)));
+
+    // 3) เลือกจากข้อใหม่ก่อน
+    let chosen = pickBalanced(fresh, count);
+
+    // 4) ถ้าข้อใหม่ไม่พอ: ล้างประวัติของคลังนี้ แล้วเติมจากข้อที่เหลือ (ไม่ซ้ำกับที่เลือกแล้ว)
+    if (chosen.length < count) {
+        const chosenKeys = new Set(chosen.map(questionKey));
+        unique.forEach(q => asked.delete(questionKey(q)));
+        saveAskedSet(level, asked);
+        const rest = unique.filter(q => !chosenKeys.has(questionKey(q)));
+        chosen = chosen.concat(pickBalanced(rest, count - chosen.length));
+    }
+
+    // 5) สลับลำดับสุดท้ายอีกครั้ง
+    return shuffleArray(chosen);
+}
+
+// สุ่มแบบวนกลุ่มตามระดับความยาก (ถ้าไม่ใช่โหมด ALL ทุกข้อจะอยู่กลุ่มเดียวกันอยู่แล้ว)
+function pickBalanced(list, count) {
+    if (list.length <= count) return shuffleArray(list);
+
+    const buckets = {};
+    shuffleArray(list).forEach(q => {
+        const d = (q.difficulty || "OTHER").toString().toUpperCase();
+        (buckets[d] = buckets[d] || []).push(q);
+    });
+
+    const names = shuffleArray(Object.keys(buckets));
+    const out = [];
+    while (out.length < count) {
+        let added = false;
+        for (const n of names) {
+            if (buckets[n].length > 0 && out.length < count) {
+                out.push(buckets[n].pop());
+                added = true;
+            }
+        }
+        if (!added) break;
+    }
+    return out;
+}
+
+function prepareQuestions() {
+    if (masterQuestions.length === 0) return;
+
+    abortCurrentSession();   // กัน timer/ไมค์ของรอบเก่าค้างมากระทบชุดข้อสอบใหม่
+
+    isTestRunning = true;
+    isTestingPhase = false; // ยังไม่เข้าหน้าคำถาม
+    unlockStudentName(false); // เริ่มรอบใหม่ ปลดล็อกช่องชื่อ
+    stopCelebration();
+
+    // ใช้ระดับที่ "ยืนยันแล้ว" เท่านั้น (ครั้งแรกใช้ค่าในช่องเลือก) กันระดับที่ยังไม่ยืนยันมามีผลตอนสลับโหมด ฯลฯ
+    const selectedLevel = validLevel(adminConfig.forceLevelControl 
+                          ? adminConfig.forcedLevel 
+                          : (appliedLevel || document.getElementById("userLevel").value));
+    appliedLevel = selectedLevel;
+    if (!adminConfig.forceLevelControl) refreshLevelPendingUI();
+
+    let levelFiltered = masterQuestions.filter(q => String(q.level).trim().toUpperCase() === String(selectedLevel).toUpperCase());
+
+    if (levelFiltered.length === 0) {
+        document.getElementById("englishText").innerHTML = "ยังไม่มีประโยค<br>ของระดับนี้";
+        document.getElementById("thaiText").innerHTML = "กรุณาตรวจสอบแท็บ ThaiQuestions ในชีตว่ามีแถวที่ level = " + selectedLevel;
+        questions = [];
+        return;
+    }
+
+    let finalFiltered = levelFiltered;
+    if (adminConfig.difficulty !== "ALL") {
+        finalFiltered = levelFiltered.filter(q => q.difficulty && q.difficulty.toUpperCase() === adminConfig.difficulty);
+        if (finalFiltered.length === 0) {
+            finalFiltered = levelFiltered;
+        }
+    }
+
+    // สุ่มแบบไม่ซ้ำ: ตัดข้อที่เคยถูกถามไปแล้วออกก่อน + สุ่มด้วย Fisher-Yates + กระจายระดับความยาก
+    questions = pickFreshQuestions(finalFiltered, selectedLevel, adminConfig.questionCount);
+    currentQuestion = 0;
+    totalScore = 0;
+    passCount = 0;
+    failCount = 0;
+
+    document.getElementById("totalScore").innerText = "0";
+    document.getElementById("passCount").innerText = "0";
+    document.getElementById("failCount").innerText = "0";
+
+    const startBtn = document.getElementById("startBtn");
+    startBtn.onclick = startRecognition;
+
+    loadQuestion(0);
+}
+
+// 🔄 อัปเดตฟังก์ชัน loadQuestion() เพื่อแสดงชื่อแผนกและวิทยาลัยในโหมดรับรางวัล
+function loadQuestion(index){
+    if (!questions || questions.length === 0) return;
+
+    document.getElementById("questionNumber").innerHTML = "ข้อที่ " + (index + 1) + " / " + questions.length;
+    
+    if (adminConfig.cancelRequirement) {
+        // โหมดฝึกซ้อม: แสดงข้อความและคำแปลตามปกติ
+        document.getElementById("englishText").textContent = questions[index].text;
+        document.getElementById("thaiText").textContent = questions[index].hint ? ("📘 หมวด: " + questions[index].hint) : "";
+    } else {
+        // โหมดรับรางวัล: ลบข้อความซ่อนเดิมออกและเปลี่ยนเป็นชื่อแผนกและวิทยาลัย
+        document.getElementById("englishText").innerHTML = '<span style="font-size: 30px; color: var(--cyan); font-weight: bold;">📖 พร้อมอ่านหรือยัง?<br><span style="font-size:20px; color: var(--muted); font-weight: 400;">กดปุ่ม “เริ่มอ่าน” แล้วอ่านประโยคที่ปรากฏออกเสียงให้ชัด ๆ</span></span>';
+        document.getElementById("thaiText").innerHTML = '<span style="font-size: 24px; color: var(--muted);">วิทยาลัยสารพัดช่างศรีสะเกษ</span>';
+    }
+    
+    document.getElementById("score").innerHTML = "0%";
+    document.getElementById("status").innerHTML = "รอเริ่มทดสอบ";
+    document.getElementById("status").className = "status";
+    document.getElementById("heardText").innerHTML = "AI พร้อมฟังเสียงอ่าน...";
+    
+    document.getElementById("audioControls").style.display = "flex";
+    
+    const listenBtn = document.getElementById("listenBtn");
+    if (listenBtn) {
+        listenBtn.style.display = adminConfig.cancelRequirement ? "flex" : "none";
+    }
+    
+    const skipBtn = document.getElementById("skipBtn");
+    if (skipBtn) {
+        skipBtn.style.display = "flex";
+    }
+
+    document.getElementById("countdown").innerText = "00:00";
+
+    const startBtn = document.getElementById("startBtn");
+    startBtn.disabled = false;
+    startBtn.innerHTML = "🎤 เริ่มอ่าน";
+}
+
+function nextQuestion(){
+    // กันการกดข้ามข้อจนจบรอบโดยไม่กรอกชื่อ
+    if (!adminConfig.cancelRequirement && !testStudentName) {
+        requireStudentName();
+        return;
+    }
+    clearInterval(displayInterval); 
+    clearInterval(speechCountdownInterval);
+    clearTimeout(nextQuestionTimer);
+    clearTimeout(startMicDelayTimeout);
+    clearTimeout(questionTimeout); 
+    stopSentenceAudio();
+    
+    if (isRunning) {
+        isRunning = false;
+        try { recognition.stop(); } catch(e) {}
+    }
+    
+    isTestingPhase = false; // ปิดสถานะป้องกันระหว่างสลับข้อ
+
+    // โหมดฝึกฝนเห็นประโยคตั้งแต่โหลดข้อ ถ้ากดข้ามก็นับว่าเคยเห็นแล้ว
+    if (adminConfig.cancelRequirement && questions[currentQuestion]) {
+        markQuestionAsked(questions[currentQuestion]);
+    }
+
+    currentQuestion++;
+    if(currentQuestion >= questions.length){
+        evaluateFinalResult();
+    } else {
+        loadQuestion(currentQuestion);
+    }
+}
+
+function monitorAdminSettings() {
+    db.ref('machine/config').on('value', (snap) => {
+        const conf = snap.val();
+        if (conf) {
+            adminConfig.passRequirement = conf.passRequirement !== undefined ? conf.passRequirement : 5;
+            adminConfig.questionCount = conf.questionCount !== undefined ? conf.questionCount : 10;
+            adminConfig.difficulty = conf.difficulty || "ALL";
+            adminConfig.testDurationSeconds = conf.testDurationSeconds !== undefined ? conf.testDurationSeconds : 60;
+            adminConfig.forceLevelControl = conf.forceLevelControl || false;
+            adminConfig.forcedLevel = conf.forcedLevel || DEFAULT_LEVEL;
+        }
+
+        document.getElementById("adminPassReqUI").innerText = adminConfig.passRequirement;
+        document.getElementById("adminQuestionCountUI").innerText = adminConfig.questionCount;
+        document.getElementById("adminDifficulty").value = adminConfig.difficulty;
+
+        let m = Math.floor(adminConfig.testDurationSeconds / 60);
+        let s = adminConfig.testDurationSeconds % 60;
+        document.getElementById("adminTimeMin").value = m;
+        document.getElementById("adminTimeSec").value = s;
+
+        document.getElementById("adminForceLevelSwitch").checked = adminConfig.forceLevelControl;
+        document.getElementById("adminForcedLevelSelect").value = validLevel(adminConfig.forcedLevel);
+        document.getElementById("adminLevelSelectContainer").style.display = adminConfig.forceLevelControl ? "flex" : "none";
+
+        applyLevelControl();
+
+        if (!isTestRunning && !isRunning && questions.length > 0) {
+            prepareQuestions();
+        }
+    });
+}
+
+function monitorMachine() {
+    db.ref('machine/status').on('value', snap => {
+        currentMachineStatus = snap.val() || 'ready';
+        document.getElementById("machineStatusUI").innerText = currentMachineStatus.toUpperCase();
+    });
+}
+
+function monitorStock() {
+    db.ref('machine/stock').on('value', snap => {
+        const stock = snap.val() || {};
+        currentStock.slot1 = Number(stock.slot1) || 0;
+        currentStock.slot2 = Number(stock.slot2) || 0;
+        document.getElementById("slot1StockUI").innerText = currentStock.slot1;
+        document.getElementById("slot2StockUI").innerText = currentStock.slot2;
+        document.getElementById("rewardStock1UI").innerText = currentStock.slot1;
+        document.getElementById("rewardStock2UI").innerText = currentStock.slot2;
+    });
+}
+
+function updateStock(slot, amount) {
+    // ใช้ transaction: บวก/ลบจากค่าล่าสุดบนเซิร์ฟเวอร์เสมอ ไม่ทับกับตู้ที่เพิ่งจ่ายรางวัล
+    db.ref(`machine/stock/${slot}`).transaction(cur => {
+        const v = (Number(cur) || 0) + amount;
+        return v < 0 ? 0 : v;
+    }).catch(err => alert("❌ ปรับสต๊อกไม่สำเร็จ: " + err));
+}
+
+function setSystemStatus(status) {
+    db.ref('machine/status').set(status);
+}
+
+function updateAdminConfig(key, diff) {
+    let newVal = adminConfig[key] + diff;
+    if(newVal < 1) newVal = 1;
+    db.ref(`machine/config/${key}`).set(newVal);
+}
+
+function updateTestTime() {
+    const min = parseInt(document.getElementById("adminTimeMin").value) || 0;
+    const sec = parseInt(document.getElementById("adminTimeSec").value) || 0;
+    db.ref('machine/config/testDurationSeconds').set(min * 60 + sec);
+}
+
+function updateDifficulty() {
+    const val = document.getElementById("adminDifficulty").value;
+    db.ref('machine/config/difficulty').set(val);
+}
+
+function toggleLevelControl(checked) {
+    db.ref('machine/config/forceLevelControl').set(checked);
+}
+
+function setAdminForcedLevel() {
+    const val = document.getElementById("adminForcedLevelSelect").value;
+    db.ref('machine/config/forcedLevel').set(val);
+}
+
+function verifyAdmin() {
+    if(document.getElementById("adminPassword").value === ADMIN_PASSWORD) {
+        isAdminLoggedIn = true;
+        document.getElementById("adminError").style.display = "none";
+        document.getElementById("adminLoginGroup").style.display = "none";
+        document.getElementById("adminControlGroup").style.display = "block";
+    } else {
+        document.getElementById("adminError").style.display = "block";
+    }
+}
+
+function openAdminModal() { 
+    document.getElementById("adminModal").style.display = "flex"; 
+}
+function closeAdminModal() { 
+    document.getElementById("adminModal").style.display = "none"; 
+}
+
+
+// ความเร็วเสียงอ่านตัวอย่าง (0.1 - 2.0, ค่าปกติ = 1.0) ตั้งให้ช้าลงเหมาะกับเด็ก ป.1-2
+const TTS_RATE = 0.7;
+const TTS_PITCH = 1.0;
+
+function pickThaiVoice() {
+    const voices = window.speechSynthesis.getVoices() || [];
+    return voices.find(v => v.lang && v.lang.replace('_', '-').toLowerCase() === 'th-th') ||
+           voices.find(v => v.lang && v.lang.toLowerCase().startsWith('th')) ||
+           null;
+}
+
+function playSentenceAudio() {
+    if(questions[currentQuestion]) {
+        window.speechSynthesis.cancel();   // กดซ้ำแล้วเริ่มใหม่ ไม่ต่อคิวเสียงซ้อน
+        const utter = new SpeechSynthesisUtterance(questions[currentQuestion].text);
+        utter.lang = 'th-TH';
+        utter.rate = TTS_RATE;
+        utter.pitch = TTS_PITCH;
+        const v = pickThaiVoice();
+        if (v) utter.voice = v;
+        window.speechSynthesis.speak(utter);
+    }
+}
+// บางเบราว์เซอร์โหลดรายชื่อเสียงช้า เรียกครั้งแรกเพื่อให้พร้อมใช้งาน
+if (window.speechSynthesis) { window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices(); }
+function stopSentenceAudio() { window.speechSynthesis.cancel(); }
+
+// 🔄 อัปเดตฟังก์ชัน evaluateFinalResult: ยกเลิกการเริ่มใหม่เอง ปล่อย OTP ค้างหน้าจอ
+function evaluateFinalResult() { 
+    isTestRunning = false;
+    isTestingPhase = false; // ปิดสถานะต้านโกง
+    
+    document.getElementById("questionNumber").innerHTML = "ประเมินเสร็จสิ้น!";
+    document.getElementById("englishText").innerHTML = "🎉 อ่านครบแล้ว!";
+    document.getElementById("thaiText").innerHTML = "ประมวลผลคะแนน...";
+    document.getElementById("status").innerHTML = "สรุปผลการอ่าน";
+    document.getElementById("status").className = "status pass";
+    
+    // โหมดรับรางวัลใช้ชื่อที่ล็อกไว้ตอนเริ่ม / โหมดฝึกฝนใช้ชื่อในช่อง (ถ้าไม่กรอกจะไม่ระบุชื่อ)
+    if (!adminConfig.cancelRequirement && !testStudentName) {
+        document.getElementById("status").innerHTML = "⚠️ ไม่พบชื่อผู้เข้าประเมิน ไม่บันทึกคะแนน กรุณากรอกชื่อแล้วเริ่มรอบใหม่";
+        document.getElementById("status").className = "status fail";
+        const sb = document.getElementById("startBtn");
+        sb.disabled = false;
+        sb.innerHTML = "🔄 เริ่มประเมินรอบใหม่";
+        sb.onclick = prepareQuestions;
+        return;
+    }
+    const sName = (!adminConfig.cancelRequirement
+        ? testStudentName
+        : normalizeName(document.getElementById("studentName").value)) || "ผู้เข้าประเมินไม่ระบุชื่อ";
+    
+    // บันทึกชื่อ + คะแนนลง Google Sheet (ใช้ GET เหมือนเวอร์ชันแรกที่ใช้งานได้)
+    saveToGoogleSheet(sName, totalScore, passCount, failCount);
+
+    if (passCount >= adminConfig.passRequirement) playCelebration();
+    else playEncouragement();   // ผ่านเกณฑ์ (ได้ OTP ในโหมดรับรางวัล): ปรบมือ เชียร์ หวีด กรี๊ด
+
+    if (passCount >= adminConfig.passRequirement && !adminConfig.cancelRequirement) {
+        const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+        db.ref('machine/otps/' + otpCode).set({
+            valid: true,
+            userName: sName
+        });
+
+        document.getElementById("status").innerHTML = "คุณผ่านเกณฑ์! 🎁";
+        document.getElementById("englishText").innerHTML = `OTP: <span style="color: #ffcc00; font-size: 70px; text-shadow: 0 0 20px rgba(255, 204, 0, 0.5);">${otpCode}</span>`;
+        document.getElementById("thaiText").innerHTML = "นำรหัส 4 หลักนี้ไปกดรับรางวัลที่ตู้ Kiosk";
+        document.getElementById("heardText").innerHTML = `อ่านผ่านทั้งหมด: ${passCount} / ${questions.length} ข้อ (คะแนนรวม: ${totalScore})`;
+
+    } else {
+        if(!adminConfig.cancelRequirement) {
+            document.getElementById("status").innerHTML = "พยายามใหม่อีกนิด! ✌️";
+            document.getElementById("status").className = "status fail";
+        }
+        document.getElementById("heardText").innerHTML = `อ่านผ่านทั้งหมด: ${passCount} / ${questions.length} ข้อ (คะแนนรวม: ${totalScore})`;
+    }
+
+    unlockStudentName(CLEAR_NAME_AFTER_TEST);   // จบรอบ ปลดล็อกช่องชื่อ
+
+    // 🔄 เปิดปุ่มให้ User กดเริ่มสอบรอบใหม่ด้วยตนเอง
+    const startBtn = document.getElementById("startBtn");
+    startBtn.disabled = false;
+    startBtn.innerHTML = "🔄 เริ่มประเมินรอบใหม่";
+    startBtn.onclick = prepareQuestions;
+}
+
+// ปรับข้อความภาษาไทยให้เทียบกันได้: เลขไทย->เลขอารบิก, ตัดวรรณยุกต์ (ถ้าเปิด), ตัดช่องว่าง/วรรคตอน/ๆ
+// (AI ถอดเสียงไทยมักเว้นวรรคไม่แน่นอน จึงเทียบแบบไม่มีช่องว่างทั้งหมด)
+const TH_DIGIT_WORDS = ["ศูนย์","หนึ่ง","สอง","สาม","สี่","ห้า","หก","เจ็ด","แปด","เก้า"];
+function numberToThaiWords(n) {
+    n = Number(n);
+    if (!isFinite(n) || n < 0 || n > 99) return String(n).split("").map(d => TH_DIGIT_WORDS[+d] || d).join("");
+    if (n < 10) return TH_DIGIT_WORDS[n];
+    const tens = Math.floor(n / 10), ones = n % 10;
+    let w = tens === 1 ? "สิบ" : tens === 2 ? "ยี่สิบ" : TH_DIGIT_WORDS[tens] + "สิบ";
+    if (ones === 1) w += "เอ็ด"; else if (ones > 1) w += TH_DIGIT_WORDS[ones];
+    return w;
+}
+
+function normalizeThai(str) {
+    let t = String(str || "");
+    t = t.replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0E50));
+    t = t.replace(/\d+/g, m => numberToThaiWords(m));   // AI มักถอดเสียง "สอง" เป็น "2" -> แปลงเป็นคำอ่านก่อนเทียบ
+    t = t.toLowerCase();
+    if (IGNORE_TONE_MARKS) t = t.replace(/[\u0E48-\u0E4B]/g, "");
+    t = t.replace(/[^\u0E01-\u0E3A\u0E40-\u0E4E\u0E4Fa-z0-9]/g, "");   // เก็บเฉพาะอักษรไทย (ไม่รวม ฯ ๆ ๏ ๚ ๛) ตัวอักษรละติน และตัวเลข
+    t = t.replace(/\u0E46/g, "");
+    return t;
+}
+
+// อัลกอริทึมวัดความเหมือนของประโยค (Levenshtein Distance) ระดับตัวอักษร
+function similarity(s1, s2) {
+    s1 = normalizeThai(s1);
+    s2 = normalizeThai(s2);
+
+    if(s1 === s2) return 100;
+    if(s1.length === 0 || s2.length === 0) return 0;
+
+    let costs = new Array();
+    for (let i = 0; i <= s1.length; i++) {
+        let lastValue = i;
+        for (let j = 0; j <= s2.length; j++) {
+            if (i == 0) costs[j] = j;
+            else {
+                if (j > 0) {
+                    let newValue = costs[j - 1];
+                    if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+                        newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                    costs[j - 1] = lastValue;
+                    lastValue = newValue;
+                }
+            }
+        }
+        if (i > 0) costs[s2.length] = lastValue;
+    }
+    const maxLength = Math.max(s1.length, s2.length);
+    return Math.round(((maxLength - costs[s2.length]) / maxLength) * 100);
+}
+</script>
+</body>
+</html>
